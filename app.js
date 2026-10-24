@@ -32,16 +32,37 @@ for (const [day, [am, pm]] of Object.entries(CONFIG.slots.lab)) {
 }
 const timeOf = (slot, day) => ((SLOT_AT[slot.split("+")[0]] || []).find(x => x.day === day) || {}).time || "";
 
-// ---------- state ----------
+// ---------- storage ----------
+// Saved in both localStorage and IndexedDB, and marked persistent, so the
+// browser keeps it until you change it.
+const fresh = (strict = false) => ({ data: null, edits: {}, strict, savedAt: 0 });
+const validState = s => !!s && typeof s.edits === "object" && (!s.data || validImport(s.data));
 function load() {
   try {
     const s = JSON.parse(localStorage.getItem(KEY));
-    if (s && typeof s.edits === "object") return s;
+    if (validState(s)) return s;
   } catch (e) { /* storage unavailable */ }
-  return { data: null, edits: {}, strict: false };
+  return fresh();
+}
+function idb(mode, fn) {
+  return new Promise((resolve, reject) => {
+    if (!window.indexedDB) return reject(new Error("no IndexedDB"));
+    const open = indexedDB.open("attendance", 1);
+    open.onupgradeneeded = () => open.result.createObjectStore("kv");
+    open.onerror = () => reject(open.error);
+    open.onsuccess = () => {
+      const tx = open.result.transaction("kv", mode), req = fn(tx.objectStore("kv"));
+      tx.oncomplete = () => { open.result.close(); resolve(req.result); };
+      tx.onerror = () => reject(tx.error);
+    };
+  });
 }
 function save() {
-  try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) { /* storage unavailable */ }
+  state.savedAt = Date.now();
+  const json = JSON.stringify(state);
+  try { localStorage.setItem(KEY, json); } catch (e) { /* storage unavailable */ }
+  idb("readwrite", st => st.put(json, KEY)).catch(() => {});
+  refreshLink();
 }
 
 let state = load();
@@ -74,10 +95,11 @@ function build(data) {
     for (const [date, slot, st] of c.rows) {
       byKey.set(`${date}|${slot}`, { date, slot, units: slot.split("+").length, portal: st, time: timeOf(slot, orderOf(date)) });
     }
-    // Expected classes from the timetable on every class day, so future ones show up too.
-    const start = c.rows.length ? c.rows.reduce((m, r) => (r[0] < m ? r[0] : m), "9999") : classDays[0];
+    // Expected classes from the timetable, so future ones show up too. Days up to the
+    // portal's last record are left exactly as the portal has them.
+    const lastRecord = c.rows.reduce((m, r) => (r[0] > m ? r[0] : m), "");
     for (const d of classDays) {
-      if (d < start || d > lastTheory || (lab && d > lastLab)) continue;
+      if (d <= lastRecord || d > lastTheory || (lab && d > lastLab)) continue;
       const order = orderOf(d);
       const hits = slots.filter(s => (SLOT_AT[s] || []).some(x => x.day === order));
       if (!hits.length) continue;
@@ -169,15 +191,69 @@ function applyImport(data) {
   save();
   return true;
 }
-function importFromHash() {
-  if (!location.hash.startsWith("#import=")) return;
-  const b64 = location.hash.slice(8).replace(/-/g, "+").replace(/_/g, "/");
-  history.replaceState(null, "", location.pathname + location.search);
+
+// ---------- personal link and moving data in ----------
+const b64urlEncode = bytes => {
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+};
+const b64urlDecode = str => Uint8Array.from(atob(str.replace(/-/g, "+").replace(/_/g, "/")), ch => ch.charCodeAt(0));
+const streamText = (bytes, tf) => new Response(new Blob([bytes]).stream().pipeThrough(tf));
+
+// "z" = compressed JSON, "j" = plain JSON (browsers without CompressionStream).
+async function pack(obj) {
+  const bytes = new TextEncoder().encode(JSON.stringify(obj));
+  if (window.CompressionStream) return "z" + b64urlEncode(new Uint8Array(await streamText(bytes, new CompressionStream("deflate-raw")).arrayBuffer()));
+  return "j" + b64urlEncode(bytes);
+}
+async function unpack(str) {
+  const bytes = b64urlDecode(str.slice(1));
+  if (str[0] === "z") return JSON.parse(await streamText(bytes, new DecompressionStream("deflate-raw")).text());
+  return JSON.parse(new TextDecoder().decode(bytes));
+}
+
+let myLink = "";
+function refreshLink() {
+  if (!state.data) { myLink = ""; return; }
+  pack(state).then(p => (myLink = APP_URL + "#data=" + p)).catch(() => (myLink = ""));
+}
+
+function restore(s) {
+  state = { data: s.data, edits: s.edits || {}, strict: !!s.strict, savedAt: s.savedAt || 0, remTime: s.remTime };
+  M = build(state.data);
+  save();
+}
+
+let pendingRestore = null;
+// Takes a portal import, a personal link or a backup, as a link or pasted text.
+async function takeIn(text) {
+  text = (text || "").trim();
+  let obj = null;
+  const m = text.match(/#(import|data)=([A-Za-z0-9_-]+)/);
   try {
-    const data = JSON.parse(decodeURIComponent(escape(atob(b64))));
-    if (applyImport(data)) { sel = todayIso(); toast(`Imported ${data.courses.length} course${data.courses.length > 1 ? "s" : ""}.`); return; }
-  } catch (e) { /* fall through */ }
-  toast("That import link was incomplete. Run the import again.");
+    if (m && m[1] === "data") obj = await unpack(m[2]);
+    else if (m) obj = JSON.parse(new TextDecoder().decode(b64urlDecode(m[2])));
+    else obj = JSON.parse(text);
+  } catch (e) { return "bad"; }
+  if (validImport(obj)) { applyImport(obj); sel = todayIso(); return "import"; }
+  if (validState(obj) && obj.data) {
+    if (!M || (obj.savedAt || 0) >= (state.savedAt || 0)) { restore(obj); sel = todayIso(); return "restored"; }
+    pendingRestore = obj;
+    return "older";
+  }
+  return "bad";
+}
+function reportTake(r) {
+  if (r === "import") toast(`Imported ${M.courses.length} course${M.courses.length > 1 ? "s" : ""}.`);
+  if (r === "restored") toast("Your data is back.");
+  if (r === "bad") toast("That isn't an import or a personal link. Try again from the portal.");
+}
+async function handleHash() {
+  if (!/^#(import|data)=/.test(location.hash)) return null;
+  const text = location.hash;
+  history.replaceState(null, "", location.pathname + location.search);
+  return takeIn(text);
 }
 
 const APP_URL = location.href.split("#")[0].split("?")[0].replace(/index\.html$/, "");
@@ -236,9 +312,11 @@ function importHtml(first) {
         <li>Tap <b>Open the app</b>. If you use the installed app on iPhone, tap <b>Copy</b> instead and paste below.</li>
       </ol>
     </div>
+    ${first ? `<div class="stepcard"><b>Already set up on another device?</b><p class="note">Open your personal link here (Settings → My link on the other device), or copy it and tap Paste.</p></div>` : ""}
+    ${navigator.clipboard && navigator.clipboard.readText ? `<button class="primary" data-act="pasteClip">Paste from clipboard</button>` : ""}
     <details ${first ? "" : "open"}>
-      <summary>Paste import</summary>
-      <textarea id="paste" rows="4" placeholder="Paste what the import copied"></textarea>
+      <summary>Or paste it here</summary>
+      <textarea id="paste" rows="4" placeholder="Paste the import or your personal link"></textarea>
       <button class="primary" data-act="paste">Import</button>
     </details>
     <p class="note">Your data stays on this device.${location.protocol === "file:" ? " You're using the downloaded copy, so after importing tap <b>Copy</b> and paste here." : ""}</p>`;
@@ -266,7 +344,7 @@ function renderDay() {
   for (const c of M.courses) for (const k of c.classes) if (k.date === sel) sessions.push({ c, k });
   sessions.sort((a, b) => a.k.time.localeCompare(b.k.time));
 
-  let h = `
+  let h = alertsHtml() + `
     <div class="daynav">
       <button class="icon" data-act="prev" aria-label="Previous day">‹</button>
       <div class="date"><b>${sel === today ? "Today · " : ""}${nice(sel)}</b><small>${esc(label)}</small></div>
@@ -310,6 +388,37 @@ function renderDay() {
   flashIds = [];
 }
 
+function alertsHtml() {
+  if (pendingRestore) {
+    return `<div class="alert warn">That link has older data than this app.
+      <div class="quick"><button data-act="restoreOld">Replace anyway</button><button data-act="keepMine">Keep mine</button></div></div>`;
+  }
+  const today = todayIso(), bad = [], edge = [];
+  let unmarked = 0, first = "";
+  for (const c of M.courses) {
+    const s = stats(c);
+    if (s.canSkip < 0 || !ok(s.A, s.T)) bad.push(c.name);
+    else if (s.left && Math.floor(s.canSkip / c.perSession) === 0) edge.push(c.name);
+    for (const k of c.classes) {
+      if (k.date <= today && statusOf(c, k) === null) { unmarked++; if (!first || k.date < first) first = k.date; }
+    }
+  }
+  let h = "";
+  if (bad.length) h += `<div class="alert bad"><b>Below ${MIN}% risk:</b> ${bad.map(esc).join(", ")}. Attend every class.</div>`;
+  if (edge.length) h += `<div class="alert warn"><b>At the limit:</b> ${edge.map(esc).join(", ")}. Don't skip any more.</div>`;
+  if (unmarked && first !== sel) h += `<div class="alert info">${unmarked} past ${unmarked === 1 ? "class isn't" : "classes aren't"} marked yet. <button class="inline" data-date="${first}">Mark them</button></div>`;
+  return h;
+}
+
+function summaryText() {
+  const today = todayIso(), o = overall(today);
+  const lines = M.courses.map(c => {
+    const s = stats(c);
+    return `• ${c.name}: ${fmt(s.pct)} · ${s.canSkip < 0 ? "at risk" : `can skip ${Math.floor(s.canSkip / c.perSession)}`}`;
+  });
+  return `Attendance · ${M.sem} · ${nice(today)}\nOverall: ${fmt(o.pct)} (${o.A}/${o.T})\n${lines.join("\n")}`;
+}
+
 function cardsHtml() {
   let h = `<div class="cards">`;
   for (const c of M.courses) {
@@ -330,7 +439,7 @@ function cardsHtml() {
 
 function renderSubjects() {
   const c = openCourse && course(openCourse);
-  if (!c) { $("#tab-subj").innerHTML = `<p class="note">Tap a subject to see every class and edit it.</p>${cardsHtml()}`; return; }
+  if (!c) { $("#tab-subj").innerHTML = `<div class="rowhead"><p class="note">Tap a subject to see every class and edit it.</p><button class="inline" data-act="share">Share summary</button></div>${cardsHtml()}`; return; }
   const s = stats(c), v = verdict(c, s), today = todayIso();
   let h = `
     <button class="link left" data-act="back">‹ All subjects</button>
@@ -394,12 +503,28 @@ function renderSettings() {
     <p class="note">Last import: ${at ? `${nice(iso(at))}, ${pad(at.getHours())}:${pad(at.getMinutes())}` : "unknown"}. Importing again replaces the portal data and keeps your marks on classes it doesn't have yet.</p>
     ${importHtml(false)}
 
+    <h2>My link</h2>
+    <p class="note">Your personal link has all your data packed inside. Open it in any browser or on any device and everything is back, no import needed. Save it somewhere safe (notes, or a message to yourself), and make a new one after big changes. Anyone with it can see your attendance.</p>
+    <div class="quick">
+      <button data-act="copyLink">Copy my link</button>
+      ${navigator.share ? `<button data-act="shareLink">Save or send it</button>` : ""}
+    </div>
+
+    <h2>Daily reminder</h2>
+    <p class="note">Adds a reminder to your calendar app to mark attendance on each class day left this semester.</p>
+    <label class="field">Remind me at <input type="time" id="remTime" value="${state.remTime || "18:00"}"></label>
+    <div class="quick">
+      <button data-act="ics">iPhone / Outlook calendar</button>
+      <button data-act="gcal">Google Calendar</button>
+    </div>
+    <p class="note">Google Calendar repeats every weekday until the last class day, so it doesn't skip holidays.</p>
+
     <h2>Percentage rule</h2>
     <label class="switch"><input type="checkbox" id="strict" ${state.strict ? "checked" : ""}> Strict 75% (ignore the portal's rounding up)</label>
     <p class="note">The portal rounds up, so 74.2% shows as 75%. Turn this on to keep a safety margin. On duty counts as present, like on the portal.</p>
 
-    <h2>Backup</h2>
-    <p class="note">Export here and import on another device to move everything, including your own marks.</p>
+    <h2>Backup file</h2>
+    <p class="note">The same as your personal link, but saved as a file.</p>
     <div class="quick">
       <button data-act="export">Export</button>
       <label class="btn">Import backup<input type="file" id="importFile" accept="application/json,.json" hidden></label>
@@ -411,6 +536,44 @@ function renderSettings() {
 
     <h2>Install</h2>
     <p class="note"><b>iPhone:</b> Safari → Share → Add to Home Screen.<br><b>Android / laptop:</b> Chrome → menu → Install app.<br><b>Offline copy for a computer:</b> <a href="${ZIP_URL}">download the zip</a>, unzip it and open <i>index.html</i>.</p>`;
+}
+
+// ---------- reminders ----------
+function remindDays() {
+  const today = todayIso();
+  return M.dates.filter(d => d >= today && d <= M.lastTheory && M.isClassDay(d));
+}
+function downloadIcs() {
+  const days = remindDays();
+  if (!days.length) { toast("No class days left this semester."); return; }
+  const hm = (state.remTime || "18:00").replace(":", "");
+  const stamp = new Date().toISOString().replace(/[-:]/g, "").slice(0, 15) + "Z";
+  const lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//attendance//reminder//EN", "CALSCALE:GREGORIAN"];
+  for (const d of days) {
+    lines.push("BEGIN:VEVENT", `UID:attendance-${d}`, `DTSTAMP:${stamp}`, `DTSTART:${d.replace(/-/g, "")}T${hm}00`, "DURATION:PT10M",
+      "SUMMARY:Mark today's attendance", `DESCRIPTION:${APP_URL}`, `URL:${APP_URL}`,
+      "BEGIN:VALARM", "ACTION:DISPLAY", "DESCRIPTION:Mark today's attendance", "TRIGGER:PT0M", "END:VALARM", "END:VEVENT");
+  }
+  lines.push("END:VCALENDAR");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([lines.join("\r\n")], { type: "text/calendar" }));
+  a.download = "attendance-reminders.ics";
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  toast(`Reminders for ${days.length} class days. Open the file to add them to your calendar.`);
+}
+function openGoogleCalendar() {
+  const days = remindDays();
+  if (!days.length) { toast("No class days left this semester."); return; }
+  const [h, m] = (state.remTime || "18:00").split(":").map(Number);
+  const end = new Date(2000, 0, 1, h, m + 10);
+  const d0 = days[0].replace(/-/g, "");
+  const url = "https://calendar.google.com/calendar/render?action=TEMPLATE" +
+    "&text=" + encodeURIComponent("Mark today's attendance") +
+    "&details=" + encodeURIComponent(APP_URL) +
+    `&dates=${d0}T${pad(h)}${pad(m)}00/${d0}T${pad(end.getHours())}${pad(end.getMinutes())}00` +
+    "&recur=" + encodeURIComponent(`RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR;UNTIL=${M.lastTheory.replace(/-/g, "")}T235959Z`);
+  window.open(url, "_blank", "noopener");
 }
 
 // ---------- events ----------
@@ -485,13 +648,27 @@ document.addEventListener("click", e => {
   if (act === "copyBm") {
     copyText(bookmarklet).then(() => toast("Import code copied. Now make the bookmark."), () => toast("Couldn't copy. Long-press the button on a laptop instead."));
   }
-  if (act === "paste") {
-    let data = null;
-    try { data = JSON.parse($("#paste").value); } catch (err) { /* handled below */ }
-    if (!applyImport(data)) { toast("That doesn't look like an import. Run the import and tap Copy."); return; }
-    sel = todayIso(); tab = "day"; render(); window.scrollTo(0, 0);
-    toast(`Imported ${data.courses.length} course${data.courses.length > 1 ? "s" : ""}.`);
+  if (act === "paste" || act === "pasteClip") {
+    const got = act === "paste" ? Promise.resolve($("#paste").value) : navigator.clipboard.readText();
+    got.then(takeIn).then(r => {
+      if (r !== "bad") { tab = "day"; window.scrollTo(0, 0); }
+      render(); reportTake(r);
+    }, () => toast("Couldn't read the clipboard. Paste into the box instead."));
   }
+  if (act === "restoreOld") { restore(pendingRestore); pendingRestore = null; render(); toast("Replaced with the data from the link."); }
+  if (act === "keepMine") { pendingRestore = null; render(); }
+  if (act === "copyLink") {
+    if (!myLink) { toast("Still preparing your link, try again in a second."); refreshLink(); return; }
+    copyText(myLink).then(() => toast("Your personal link is copied. Save it somewhere safe."), () => toast("Couldn't copy the link."));
+  }
+  if (act === "shareLink" && myLink) navigator.share({ title: "My attendance", url: myLink }).catch(() => {});
+  if (act === "share") {
+    const text = summaryText();
+    if (navigator.share) navigator.share({ text }).catch(() => {});
+    else copyText(text).then(() => toast("Summary copied."));
+  }
+  if (act === "ics") downloadIcs();
+  if (act === "gcal") openGoogleCalendar();
   if (act === "export") {
     const blob = new Blob([JSON.stringify(state)], { type: "application/json" });
     const a = document.createElement("a");
@@ -501,17 +678,17 @@ document.addEventListener("click", e => {
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }
   if (act === "clearEdits" && armed(t, "Tap again to clear")) { state.edits = {}; save(); render(); toast("Your marks are cleared. Portal data is kept."); }
-  if (act === "reset" && armed(t, "Tap again to remove")) { state = { data: null, edits: {}, strict: state.strict }; M = null; save(); render(); }
+  if (act === "reset" && armed(t, "Tap again to remove")) { state = fresh(state.strict); M = null; save(); render(); }
 });
 
 document.addEventListener("change", e => {
   if (e.target.id === "strict") { state.strict = e.target.checked; save(); renderHeader(); }
+  if (e.target.id === "remTime" && e.target.value) { state.remTime = e.target.value; save(); }
   if (e.target.id === "importFile" && e.target.files[0]) {
     e.target.files[0].text().then(txt => {
       const s = JSON.parse(txt);
-      if (!s || typeof s.edits !== "object" || !validImport(s.data)) throw new Error();
-      state = { data: s.data, edits: s.edits, strict: !!s.strict };
-      M = build(state.data); save(); tab = "day"; render(); toast("Backup imported.");
+      if (!validState(s) || !s.data) throw new Error();
+      restore(s); tab = "day"; render(); toast("Backup imported.");
     }).catch(() => toast("That file isn't a valid backup."));
   }
 });
@@ -524,11 +701,29 @@ document.addEventListener("visibilitychange", () => {
   if (now !== lastToday) { if (sel === lastToday) sel = now; lastToday = now; }
   if (M) render();
 });
-window.addEventListener("hashchange", () => { importFromHash(); render(); });
+window.addEventListener("hashchange", () => {
+  handleHash().then(r => { if (r) { tab = "day"; render(); reportTake(r); } });
+});
 
-if (state.data && validImport(state.data)) M = build(state.data);
-importFromHash();
-render();
+async function start() {
+  if (state.data) M = build(state.data);
+  if (!M) {
+    // localStorage was cleared: fall back to the IndexedDB copy.
+    try {
+      const json = await idb("readonly", st => st.get(KEY));
+      const s = json && JSON.parse(json);
+      if (validState(s) && s.data) { state = s; M = build(s.data); localStorage.setItem(KEY, json); }
+    } catch (e) { /* nothing saved */ }
+  } else {
+    idb("readwrite", st => st.put(JSON.stringify(state), KEY)).catch(() => {});
+  }
+  if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+  const r = await handleHash();
+  render();
+  if (r) reportTake(r);
+  refreshLink();
+}
+start();
 
 if ("serviceWorker" in navigator && location.protocol !== "file:") {
   navigator.serviceWorker.register("sw.js").catch(() => {});

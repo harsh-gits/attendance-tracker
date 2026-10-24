@@ -206,3 +206,13 @@ td.run { text-align: right; font-weight: 600; white-space: nowrap; }
 .unm { color: var(--warn); font-weight: 700; }
 .legend .exm { background: var(--accent-soft); color: var(--accent); padding: 0 6px; border-radius: 4px; }
 table.classes .seg { display: inline-flex; }
+
+.alert { border-radius: 12px; padding: 10px 12px; margin-bottom: 10px; font-size: 13.5px; border: 1px solid transparent; }
+.alert.bad { background: var(--bad-soft); color: var(--bad); }
+.alert.warn { background: var(--warn-soft); color: var(--warn); }
+.alert.info { background: var(--accent-soft); color: var(--accent); }
+.alert .quick { margin-top: 8px; }
+.alert .inline { margin-left: 4px; padding: 3px 10px; }
+.rowhead { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.rowhead .note { margin: 8px 0; }
+.rowhead .inline { flex-shrink: 0; }
