@@ -249,3 +249,8 @@ ul.hist { margin: 6px 0 0; padding-left: 18px; font-size: 13px; color: var(--mut
 #dconfirm { width: 100%; margin-top: 4px; border: 1px solid var(--line); background: var(--bg); border-radius: 10px; padding: 10px; letter-spacing: .1em; }
 .quick .dangerbtn, .dangerbtn { background: var(--bad); color: #fff; border: 0; border-radius: 10px; padding: 10px; font-weight: 700; flex: 1; }
 .quick .dangerbtn:disabled, .dangerbtn:disabled { opacity: .35; }
+.opt small { display: inline; }
+.opt input:disabled + * , .opt:has(input:disabled) { opacity: .5; }
+.picks { display: grid; gap: 2px; padding: 4px 0 8px 28px; border-bottom: 1px solid var(--line); }
+.pick { display: flex; gap: 8px; align-items: center; font-size: 14px; padding: 4px 0; }
+.pick:has(input:disabled) { opacity: .45; }

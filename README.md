@@ -2,6 +2,8 @@
 
 A small offline app to keep track of class attendance.
 
+**Open the app:** https://harsh-gits.github.io/attendance-tracker/
+
 ## Run locally
 
 ```

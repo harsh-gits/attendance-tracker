@@ -471,7 +471,7 @@ function renderDay() {
     h += `<p class="empty">${info && /holiday/i.test(info.type) ? "🎉 " : ""}No classes</p>`;
   }
   if (info && info.own) h += `<div class="alert warn">You changed this day yourself (the portal had: ${esc(info.was ? info.was.type : "nothing")}). Undo it in Changes.</div>`;
-  if (info && sel <= M.lastTheory) h += `<button class="link" data-act="dayEdit">Emergency change: make this a holiday or a working day…</button>`;
+  if (info && sel <= M.lastTheory) h += `<button class="link" data-act="dayEdit">Emergency change: holiday, half day, cancelled classes or extra working day…</button>`;
 
   h += `<h2>Subjects</h2>${cardsHtml()}`;
   $("#tab-day").innerHTML = h;
@@ -741,15 +741,27 @@ function classesIf(order) {
   if (!order) return [];
   return M.courses.filter(c => (!c.lab || sel <= M.lastLab) && c.slots.some(s => (SLOT_AT[s] || []).some(x => x.day === order)));
 }
+// Classes on the selected day, in time order: [{ c, k }].
+let sheetClasses = [];
+const isMorning = k => (k.time || "00:00") < "13:00";
 function openDaySheet() {
   const info = M.cal[sel], own = (state.calEdits || {})[sel];
   const nowNames = M.courses.filter(c => c.classes.some(k => k.date === sel && !k.portal)).map(c => c.name);
   const wd = WD[parse(sel).getDay()], defOrder = FULL_DAY[wd] ? wd : "Mon";
+  sheetClasses = [];
+  for (const c of M.courses) for (const k of c.classes) if (k.date === sel) sheetClasses.push({ c, k });
+  sheetClasses.sort((a, b) => a.k.time.localeCompare(b.k.time));
+  const am = sheetClasses.filter(x => isMorning(x.k)).length, pm = sheetClasses.length - am;
+  const partial = sheetClasses.length ? `
+      <label class="opt"><input type="radio" name="dk" value="am" ${am ? "" : "disabled"}> Morning cancelled <small>(${am} ${am === 1 ? "class" : "classes"} before 1 pm)</small></label>
+      <label class="opt"><input type="radio" name="dk" value="pm" ${pm ? "" : "disabled"}> Afternoon cancelled <small>(${pm} ${pm === 1 ? "class" : "classes"} from 1 pm)</small></label>
+      <label class="opt"><input type="radio" name="dk" value="pick"> Only these classes were cancelled:</label>
+      <div class="picks">${sheetClasses.map((x, i) => `<label class="pick"><input type="checkbox" class="dpick" value="${i}" ${statusOf(x.c, x.k) === "C" ? "checked" : ""}> ${x.k.time || ""} · ${esc(x.c.name)}</label>`).join("")}</div>` : "";
   $("#sheet").innerHTML = `
     <div class="sheetbox" role="dialog" aria-modal="true">
       <h3>Change ${nice(sel)}</h3>
       <p class="note">Right now: <b>${esc(info.type)}</b>${info.detail ? " · " + esc(info.detail.replace(/^\(|\)$/g, "")) : ""}</p>
-      <label class="opt"><input type="radio" name="dk" value="hol" checked> Holiday: no classes</label>
+      <label class="opt"><input type="radio" name="dk" value="hol" checked> Full day: holiday, no classes</label>${partial}
       <label class="opt"><input type="radio" name="dk" value="work"> Working day, following the
         <select id="dorder">${Object.keys(FULL_DAY).map(d => `<option value="${d}" ${d === defOrder ? "selected" : ""}>${FULL_DAY[d]}</option>`).join("")}</select> timetable</label>
       ${own ? `<label class="opt"><input type="radio" name="dk" value="undo"> Undo my change (back to the portal's calendar)</label>` : ""}
@@ -761,11 +773,22 @@ function openDaySheet() {
   $("#sheet").dataset.now = JSON.stringify(nowNames);
   updateImpact();
 }
+// The classes a half-day or "only these" choice would mark Off.
+function sheetTargets(kind) {
+  if (kind === "am") return sheetClasses.filter(x => isMorning(x.k));
+  if (kind === "pm") return sheetClasses.filter(x => !isMorning(x.k));
+  if (kind === "pick") return [...document.querySelectorAll(".dpick:checked")].map(b => sheetClasses[+b.value]);
+  return [];
+}
 function updateImpact() {
   const kind = (document.querySelector("input[name=dk]:checked") || {}).value;
   const nowNames = JSON.parse($("#sheet").dataset.now || "[]");
+  document.querySelectorAll(".dpick").forEach(b => (b.disabled = kind !== "pick"));
   let what;
-  if (kind === "hol") what = nowNames.length ? `<b>${nowNames.length} ${nowNames.length === 1 ? "class" : "classes"}</b> on this day (${nowNames.map(esc).join(", ")}) will be <b>removed</b>.` : "No classes are scheduled on this day, so only the calendar changes.";
+  if (["am", "pm", "pick"].includes(kind)) {
+    const t = sheetTargets(kind);
+    what = t.length ? `<b>${t.length} ${t.length === 1 ? "class" : "classes"}</b> (${t.map(x => esc(x.c.name)).join(", ")}) will be marked <b>Off</b>: not held, not counted.` : "Tick at least one class.";
+  } else if (kind === "hol") what = nowNames.length ? `<b>${nowNames.length} ${nowNames.length === 1 ? "class" : "classes"}</b> on this day (${nowNames.map(esc).join(", ")}) will be <b>removed</b>.` : "No classes are scheduled on this day, so only the calendar changes.";
   else if (kind === "work") { const add = classesIf($("#dorder").value).map(c => c.name); what = `This day will have <b>${add.length} ${add.length === 1 ? "class" : "classes"}</b> (${add.map(esc).join(", ") || "none"}), replacing what's there now.`; }
   else what = "This day goes back to exactly what the portal's calendar says.";
   $("#dimpact").innerHTML = `<b>⚠ Only do this if your college has officially announced it.</b>
@@ -773,10 +796,23 @@ function updateImpact() {
     <li>Your current %, "can skip" numbers and end-of-semester % change for <b>every subject</b>.</li>
     <li>It stays even when you import again. Classes the portal has already recorded still count as recorded.</li>
     <li>If you get it wrong, your numbers will be wrong until you undo it (in Changes).</li></ul>`;
-  $("#dapply").disabled = $("#dconfirm").value.trim().toUpperCase() !== "CHANGE";
+  const empty = ["am", "pm", "pick"].includes(kind) && !sheetTargets(kind).length;
+  $("#dapply").disabled = empty || $("#dconfirm").value.trim().toUpperCase() !== "CHANGE";
 }
 function applyDayChange() {
   const kind = (document.querySelector("input[name=dk]:checked") || {}).value;
+  if (["am", "pm", "pick"].includes(kind)) {
+    // Part of the day: mark those classes Off (kept across imports, listed in Changes).
+    const t = sheetTargets(kind);
+    $("#sheet").hidden = true;
+    if (kind === "pick") {
+      // Unticked classes that were Off go back to normal.
+      const picked = new Set(t.map(x => x.k));
+      const back = sheetClasses.filter(x => !picked.has(x.k) && statusOf(x.c, x.k) === "C").map(x => [x.c, x.k, null]);
+      change([...t.map(x => [x.c, x.k, "C"]), ...back]);
+    } else change(t.map(x => [x.c, x.k, "C"]));
+    return;
+  }
   state.calEdits = state.calEdits || {};
   if (kind === "hol") state.calEdits[sel] = { type: "Holiday", detail: "(Declared by you)", at: Date.now() };
   if (kind === "work") { const o = $("#dorder").value; state.calEdits[sel] = { type: "Instructional Day", detail: `(${FULL_DAY[o]} Day Order · declared by you)`, at: Date.now() }; }
@@ -931,7 +967,7 @@ document.addEventListener("input", e => {
   if (e.target.id === "dconfirm") updateImpact();
 });
 document.addEventListener("change", e => {
-  if (e.target.name === "dk" || e.target.id === "dorder") updateImpact();
+  if (e.target.name === "dk" || e.target.id === "dorder" || e.target.classList.contains("dpick")) updateImpact();
   if (e.target.id === "strict") { state.strict = e.target.checked; save(); renderHeader(); }
   if (e.target.id === "remTime" && e.target.value) { state.remTime = e.target.value; save(); }
   if (e.target.id === "importFile" && e.target.files[0]) {
