@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Attendance</title>
+  <meta name="theme-color" content="#4f46e5">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Attendance">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="sem" id="sem"></div>
+    <div class="overall" id="overall"></div>
+    <div class="sub" id="overallSub"></div>
+  </header>
+  <main>
+    <section id="tab-day" class="tab active"></section>
+    <section id="tab-subj" class="tab"></section>
+    <section id="tab-cal" class="tab"></section>
+    <section id="tab-set" class="tab"></section>
+  </main>
+  <nav class="tabs">
+    <button data-tab="day" class="on">Today</button>
+    <button data-tab="subj">Subjects</button>
+    <button data-tab="cal">Calendar</button>
+    <button data-tab="set">Settings</button>
+  </nav>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="config.js"></script>
+  <script src="importer.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
