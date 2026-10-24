@@ -216,3 +216,16 @@ table.classes .seg { display: inline-flex; }
 .rowhead { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .rowhead .note { margin: 8px 0; }
 .rowhead .inline { flex-shrink: 0; }
+
+.top .sub .endchip { display: inline-block; margin-top: 6px; padding: 3px 10px; border-radius: 999px; background: rgba(255, 255, 255, .18); font-weight: 600; }
+.top .sub { display: flex; flex-direction: column; align-items: flex-start; }
+.plan { margin-top: 8px; padding: 6px 10px; border-radius: 8px; background: var(--accent-soft); color: var(--accent); font-size: 12.5px; font-weight: 600; }
+.badge { display: inline-block; min-width: 18px; padding: 0 5px; border-radius: 9px; background: var(--accent); color: #fff; font-size: 11px; line-height: 18px; }
+.tabs button { font-size: 13.5px; }
+.planbox { padding: 10px 12px; border-radius: 12px; background: var(--accent-soft); color: var(--accent); font-size: 13.5px; margin-bottom: 8px; }
+.logrow { display: flex; flex-direction: column; gap: 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; margin-bottom: 8px; }
+.logrow .dlink { font-size: 14px; }
+.inline-s { display: inline; }
+.logact { display: flex; gap: 8px; align-items: center; }
+.undo { border: 1px solid var(--line); background: transparent; border-radius: 10px; padding: 7px 12px; color: var(--muted); font-size: 12.5px; }
+.empty.small { padding: 8px 0; font-size: 13.5px; text-align: left; }

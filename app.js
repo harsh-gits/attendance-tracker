@@ -131,6 +131,9 @@ function ok(a, t) {
 }
 const fmt = p => (p === null ? "–" : (state.strict ? p.toFixed(1) : p) + "%");
 const counts = st => st === "P" || st === "OD";
+// Exact percentage with one decimal, so a single class always shows a change.
+const exact = (a, t) => (t ? (a * 100) / t : null);
+const fmtx = p => (p === null ? "–" : (Math.floor(p * 10 + 1e-9) / 10).toFixed(1) + "%");
 
 // upto: count classes on or before this date. override: { k, st } for "what if".
 function stats(c, upto = todayIso(), override) {
@@ -140,24 +143,37 @@ function stats(c, upto = todayIso(), override) {
     const st = override && override.k === k ? override.st : statusOf(c, k);
     if (st === "C") continue;
     if (k.date <= upto) {
-      if (st === null) { if (k.date <= today) unmarked++; continue; }
+      if (st === null) {
+        if (k.date <= today) { unmarked++; continue; }
+        T += k.units; A += k.units; // projecting ahead: assume you attend unplanned classes
+        continue;
+      }
       T += k.units; if (counts(st)) A += k.units;
     } else if (k.date > today) {
       F += k.units; if (st === "A") FA += k.units;
     }
   }
   const fa = A + F - FA, ft = T + F;
-  let canSkip = -1;
-  if (ok(fa, ft)) { canSkip = 0; while (canSkip < F - FA && ok(fa - canSkip - 1, ft)) canSkip++; }
+  // Buffer: how many more future classes you can miss on top of what you planned.
+  const buffer = (attend, room) => {
+    if (!ok(attend, ft)) return -1;
+    let n = 0;
+    while (n < room && ok(attend - n - 1, ft)) n++;
+    return n;
+  };
+  const canSkip = buffer(fa, F - FA), canSkipNoPlan = buffer(A + F, F);
   let need = 0;
   while (!ok(A + need, T + need) && need < 500) need++;
-  return { A, T, F, FA, unmarked, pct: pct(A, T), finalPct: pct(fa, ft), canSkip, need, left: F - FA };
+  return {
+    A, T, F, FA, fa, ft, unmarked, need, left: F - FA, canSkip, canSkipNoPlan,
+    pct: pct(A, T), exact: exact(A, T), finalPct: pct(fa, ft), finalExact: exact(fa, ft),
+  };
 }
 
 function overall(upto) {
-  let A = 0, T = 0;
-  for (const c of M.courses) { const s = stats(c, upto); A += s.A; T += s.T; }
-  return { A, T, pct: pct(A, T) };
+  let A = 0, T = 0, fa = 0, ft = 0, planned = 0;
+  for (const c of M.courses) { const s = stats(c, upto); A += s.A; T += s.T; fa += s.fa; ft += s.ft; planned += s.FA; }
+  return { A, T, pct: pct(A, T), exact: exact(A, T), end: exact(fa, ft), planned };
 }
 
 const plural = (c, n) => (c.lab ? (n === 1 ? "lab" : "labs") : (n === 1 ? "class" : "classes"));
@@ -173,6 +189,13 @@ function verdict(c, s) {
     sub: (s.left || s.FA ? `Ends at ${fmt(s.finalPct)} if you attend the rest` : "No classes left") + now,
   };
 }
+// One line about planned future absences, shown apart from the current %.
+function planLine(c, s) {
+  if (!s.FA) return "";
+  const u = c.perSession, n = Math.round(s.FA / u);
+  const left = s.canSkip < 0 ? "over the limit" : `buffer ${Math.floor(s.canSkip / u)} left (was ${Math.max(0, Math.floor(s.canSkipNoPlan / u))})`;
+  return `<div class="plan">Planned: ${n} ${n === 1 ? "absence" : "absences"} → ends ${fmt(s.finalPct)} · ${left}</div>`;
+}
 const skipShort = (c, s) => (s.canSkip < 0 ? `ends ${fmt(s.finalPct)} ⚠︎` : `can skip ${Math.floor(s.canSkip / c.perSession)}`);
 
 // ---------- import ----------
@@ -185,7 +208,7 @@ function applyImport(data) {
   // The portal is the source of truth: drop your own marks on classes it now has.
   const have = new Set();
   for (const c of data.courses) for (const [d, slot] of c.rows) have.add(`${c.code}|${c.slot}|${d}|${slot}`);
-  for (const k of Object.keys(state.edits)) if (have.has(k)) delete state.edits[k];
+  for (const k of Object.keys(state.edits)) if (have.has(k)) { delete state.edits[k]; if (state.editTimes) delete state.editTimes[k]; }
   state.data = data;
   M = build(data);
   save();
@@ -220,7 +243,7 @@ function refreshLink() {
 }
 
 function restore(s) {
-  state = { data: s.data, edits: s.edits || {}, strict: !!s.strict, savedAt: s.savedAt || 0, remTime: s.remTime };
+  state = { data: s.data, edits: s.edits || {}, editTimes: s.editTimes || {}, strict: !!s.strict, savedAt: s.savedAt || 0, remTime: s.remTime };
   M = build(state.data);
   save();
 }
@@ -274,6 +297,7 @@ function render() {
   if (tab === "day") renderDay();
   if (tab === "subj") renderSubjects();
   if (tab === "cal") renderCal();
+  if (tab === "log") renderLog();
   if (tab === "set") renderSettings();
 }
 
@@ -288,8 +312,11 @@ function renderHeader() {
   let risky = 0;
   for (const c of M.courses) { const s = stats(c); if (s.canSkip < 0 || Math.floor(s.canSkip / c.perSession) === 0) risky++; }
   $("#sem").textContent = M.sem;
-  $("#overall").textContent = fmt(o.pct);
-  $("#overallSub").textContent = `${o.A}/${o.T} attended · ${risky ? risky + " subject" + (risky > 1 ? "s" : "") + " at the limit" : "all subjects safe"}`;
+  $("#overall").textContent = fmtx(o.exact);
+  $("#overallSub").innerHTML = `Now · ${o.A}/${o.T} attended · ${risky ? risky + " subject" + (risky > 1 ? "s" : "") + " at the limit" : "all subjects safe"}` +
+    `<span class="endchip">${o.planned ? "With your plans" : "If you attend the rest"}: ends ${fmtx(o.end)}</span>`;
+  const n = Object.keys(state.edits).length, b = document.querySelector('[data-tab="log"]');
+  if (b) b.innerHTML = `Changes${n ? ` <span class="badge">${n}</span>` : ""}`;
 }
 
 function importHtml(first) {
@@ -378,7 +405,9 @@ function renderDay() {
         <button data-all="">Clear my marks</button>
       </div>`;
     const o = overall(sel);
-    h += `<p class="note">Overall up to this day: <b>${fmt(o.pct)}</b> (${o.A}/${o.T})</p>`;
+    h += sel <= today
+      ? `<p class="note">Overall up to this day: <b>${fmtx(o.exact)}</b> (${o.A}/${o.T})</p>`
+      : `<p class="note">Projected by this day: <b>${fmtx(o.exact)}</b>, if you attend everything except your planned absences.</p>`;
   } else {
     h += `<p class="empty">${info && /holiday/i.test(info.type) ? "🎉 " : ""}No classes</p>`;
   }
@@ -426,12 +455,13 @@ function cardsHtml() {
     h += `
       <button class="card tone-${v.tone}${flashIds.includes(c.key) ? " flash" : ""}" data-course="${esc(c.key)}">
         <div class="row">
-          <div><b>${esc(c.name)}</b><small>${esc(c.code)} · ${esc(c.slot)} · ${s.A}/${s.T}</small></div>
+          <div><b>${esc(c.name)}</b><small>${esc(c.code)} · ${esc(c.slot)} · ${s.A}/${s.T} · exact ${fmtx(s.exact)}</small></div>
           <div class="pct">${fmt(s.pct)}</div>
         </div>
         <div class="bar"><i style="width:${Math.min(100, s.pct || 0)}%"></i><span style="left:${MIN}%"></span></div>
         <div class="verdict">${v.text}</div>
         <small>${v.sub}${s.unmarked ? ` · ${s.unmarked} past ${s.unmarked === 1 ? "class" : "classes"} not marked yet` : ""}</small>
+        ${planLine(c, s)}
       </button>`;
   }
   return h + `</div>`;
@@ -449,7 +479,8 @@ function renderSubjects() {
         <div class="pct">${fmt(s.pct)}</div>
       </div>
       <div class="verdict">${v.text}</div>
-      <small>${s.A}/${s.T} attended · portal showed ${c.portal[0]}/${c.portal[1]} at import · ${v.sub}</small>
+      <small>${s.A}/${s.T} attended · exact ${fmtx(s.exact)} · portal showed ${c.portal[0]}/${c.portal[1]} at import · ${v.sub}</small>
+      ${planLine(c, s)}
     </div>
     <table class="classes"><thead><tr><th>Date</th><th>Status</th><th>% so far</th></tr></thead><tbody>`;
   let A = 0, T = 0, month = "";
@@ -466,6 +497,42 @@ function renderSubjects() {
   }
   h += `</tbody></table>`;
   $("#tab-subj").innerHTML = h;
+}
+
+// Every mark you made, newest class first, editable in place.
+function editsList() {
+  const out = [];
+  for (const c of M.courses) for (const k of c.classes) {
+    const ek = editKey(c, k);
+    if (state.edits[ek]) out.push({ c, k, ek, at: (state.editTimes || {})[ek] || 0 });
+  }
+  return out.sort((a, b) => (a.k.date + a.k.time).localeCompare(b.k.date + b.k.time));
+}
+const ago = t => {
+  if (!t) return "";
+  const m = Math.round((Date.now() - t) / 60000);
+  return m < 1 ? "just now" : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} d ago`;
+};
+function renderLog() {
+  const today = todayIso(), all = editsList();
+  const future = all.filter(x => x.k.date > today), past = all.filter(x => x.k.date <= today).reverse();
+  const row = ({ c, k, ek, at }) => `
+    <div class="logrow">
+      <div class="sinfo">
+        <button class="dlink" data-date="${k.date}">${nice(k.date)}</button> <small class="inline-s">${k.time || ""}</small>
+        <b>${esc(c.name)}</b>
+        <small>${k.portal ? `Portal: ${STATUS[k.portal] || k.portal} → ` : ""}yours: ${STATUS[state.edits[ek]]}${at ? ` · changed ${ago(at)}` : ""}</small>
+      </div>
+      <div class="logact">${statusButtons(c, k)}<button class="undo" data-undo="${esc(ek)}" title="Undo this change">Undo</button></div>
+    </div>`;
+  const o = overall(today);
+  let h = `<p class="note">Everything you marked yourself. Change it here, or undo it to go back to the portal's record (or blank).</p>`;
+  h += `<h2>Planned · future (${future.length})</h2>`;
+  h += future.length ? `<div class="planbox">Your current attendance doesn't include these. With them, the semester ends at <b>${fmtx(o.end)}</b>.</div>${future.map(row).join("")}
+    <div class="quick"><button class="danger" data-act="clearPlanned">Undo all planned</button></div>` : `<p class="empty small">No planned absences. Mark a future class Absent to plan one.</p>`;
+  h += `<h2>Past changes (${past.length})</h2>`;
+  h += past.length ? past.map(row).join("") : `<p class="empty small">No changes to past classes.</p>`;
+  $("#tab-log").innerHTML = h;
 }
 
 function renderCal() {
@@ -590,21 +657,34 @@ function toast(msg) {
 function change(updates) {
   const today = todayIso();
   const before = new Map(updates.map(([c]) => [c.key, stats(c)]));
+  const o0 = overall(today);
+  state.editTimes = state.editTimes || {};
   for (const [c, k, st] of updates) {
     const ek = editKey(c, k);
-    if (!st || st === k.portal) delete state.edits[ek]; else state.edits[ek] = st;
+    if (!st || st === k.portal) { delete state.edits[ek]; delete state.editTimes[ek]; }
+    else { state.edits[ek] = st; state.editTimes[ek] = Date.now(); }
   }
   save();
   const seen = new Set(), lines = [];
+  let future = false;
   for (const [c, k] of updates) {
     if (seen.has(c.key)) continue;
     seen.add(c.key);
-    const a = before.get(c.key), z = stats(c);
-    lines.push(`${esc(c.name)}: ${k.date > today ? `ends ${fmt(a.finalPct)} → ${fmt(z.finalPct)}` : `${fmt(a.pct)} → <b>${fmt(z.pct)}</b>`} · ${skipShort(c, z)}`);
+    const a = before.get(c.key), z = stats(c), u = c.perSession;
+    if (k.date > today) {
+      future = true;
+      const b0 = a.canSkip < 0 ? "–" : Math.floor(a.canSkip / u), b1 = z.canSkip < 0 ? "over limit" : Math.floor(z.canSkip / u);
+      lines.push(`${esc(c.name)} (planned): ends ${fmtx(a.finalExact)} → <b>${fmtx(z.finalExact)}</b> · buffer ${b0} → ${b1}`);
+    } else {
+      lines.push(`${esc(c.name)}: ${fmtx(a.exact)} → <b>${fmtx(z.exact)}</b> · ${skipShort(c, z)}`);
+    }
   }
+  const o1 = overall(today);
   flashIds = [...seen];
   render();
-  toast(lines.join("<br>") + `<br>Overall: <b>${fmt(overall(today).pct)}</b>`);
+  toast(lines.join("<br>") + (future
+    ? `<br>Now: ${fmtx(o1.exact)} (unchanged) · Semester end: ${fmtx(o0.end)} → <b>${fmtx(o1.end)}</b>`
+    : `<br>Overall: ${fmtx(o0.exact)} → <b>${fmtx(o1.exact)}</b>`));
 }
 
 function armed(t, label) {
@@ -636,6 +716,10 @@ document.addEventListener("click", e => {
     const ups = [];
     for (const c of M.courses) for (const k of c.classes) if (k.date === sel) ups.push([c, k, t.dataset.all || null]);
     if (ups.length) change(ups);
+    return;
+  }
+  if (t.dataset.undo) {
+    for (const c of M.courses) for (const k of c.classes) if (editKey(c, k) === t.dataset.undo) { change([[c, k, null]]); return; }
     return;
   }
   if (t.dataset.course) { openCourse = t.dataset.course; tab = "subj"; render(); window.scrollTo(0, 0); return; }
@@ -677,7 +761,11 @@ document.addEventListener("click", e => {
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }
-  if (act === "clearEdits" && armed(t, "Tap again to clear")) { state.edits = {}; save(); render(); toast("Your marks are cleared. Portal data is kept."); }
+  if (act === "clearEdits" && armed(t, "Tap again to clear")) { state.edits = {}; state.editTimes = {}; save(); render(); toast("Your marks are cleared. Portal data is kept."); }
+  if (act === "clearPlanned" && armed(t, "Tap again to undo all planned")) {
+    const ups = editsList().filter(x => x.k.date > todayIso()).map(x => [x.c, x.k, null]);
+    if (ups.length) change(ups);
+  }
   if (act === "reset" && armed(t, "Tap again to remove")) { state = fresh(state.strict); M = null; save(); render(); }
 });
 
