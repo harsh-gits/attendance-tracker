@@ -517,8 +517,11 @@ function examsHtml() {
 
 function cardsHtml() {
   let h = `<div class="cards">`;
-  for (const c of M.courses) {
-    const s = stats(c), v = verdict(c, s);
+  // Lowest attendance first, so the subjects that need attention are on top.
+  const list = M.courses.map(c => ({ c, s: stats(c) }))
+    .sort((a, b) => (a.s.exact === null ? 101 : a.s.exact) - (b.s.exact === null ? 101 : b.s.exact));
+  for (const { c, s } of list) {
+    const v = verdict(c, s);
     h += `
       <button class="card tone-${v.tone}${flashIds.includes(c.key) ? " flash" : ""}" data-course="${esc(c.key)}">
         <div class="row">
@@ -552,17 +555,25 @@ function renderSubjects() {
       ${planLine(c, s)}
     </div>
     <table class="classes"><thead><tr><th>Date</th><th>Status</th><th>% so far</th></tr></thead><tbody>`;
-  let A = 0, T = 0, month = "";
-  for (const k of c.classes) {
+  // Running % is worked out in date order, then shown with the latest classes on top.
+  let A = 0, T = 0;
+  const rows = c.classes.map(k => {
     const st = statusOf(c, k);
     if (st && st !== "C") { T += k.units; if (counts(st)) A += k.units; }
-    const m = k.date.slice(0, 7);
-    if (m !== month) { month = m; const d = parse(k.date); h += `<tr class="mrow"><td colspan="3">${MONTH_FULL[d.getMonth()]} ${d.getFullYear()}</td></tr>`; }
-    const future = k.date > today;
-    h += `<tr class="${future ? "future" : ""} ${k.date === today ? "todayrow" : ""}">
+    return { k, run: st && st !== "C" ? fmt(pct(A, T)) : "" };
+  });
+  const row = ({ k, run }) => `<tr class="${k.date > today ? "future" : ""} ${k.date === today ? "todayrow" : ""}">
       <td><button class="dlink" data-date="${k.date}">${nice(k.date)}</button><small>${esc(k.slot)} ${sourceTag(c, k)}</small></td>
       <td>${statusButtons(c, k)}</td>
-      <td class="run">${st && st !== "C" ? fmt(pct(A, T)) : ""}</td></tr>`;
+      <td class="run">${run}</td></tr>`;
+  const head = t => `<tr class="mrow"><td colspan="3">${t}</td></tr>`;
+  const upcoming = rows.filter(r => r.k.date > today), past = rows.filter(r => r.k.date <= today).reverse();
+  if (upcoming.length) h += head(`Upcoming (${upcoming.length})`) + upcoming.map(row).join("");
+  let month = "";
+  for (const r of past) {
+    const m = r.k.date.slice(0, 7);
+    if (m !== month) { month = m; const d = parse(r.k.date); h += head(`${MONTH_FULL[d.getMonth()]} ${d.getFullYear()}`); }
+    h += row(r);
   }
   h += `</tbody></table>`;
   $("#tab-subj").innerHTML = h;
@@ -630,7 +641,15 @@ function renderCal() {
   const today = todayIso();
   const first = parse(M.dates[0]), last = parse(M.dates[M.dates.length - 1]);
   let h = `<p class="note">Tap a day to see or mark its classes.</p>`;
-  for (let y = first.getFullYear(), m = first.getMonth(); y < last.getFullYear() || (y === last.getFullYear() && m <= last.getMonth()); m === 11 ? (y++, m = 0) : m++) {
+  const months = [];
+  for (let y = first.getFullYear(), m = first.getMonth(); y < last.getFullYear() || (y === last.getFullYear() && m <= last.getMonth()); m === 11 ? (y++, m = 0) : m++) months.push([y, m]);
+  // This month first, then the months ahead, then earlier months (newest first).
+  const now = today.slice(0, 7), key = ([y, m]) => `${y}-${pad(m + 1)}`;
+  const ordered = [...months.filter(x => key(x) >= now), ...months.filter(x => key(x) < now).reverse()];
+  if (!ordered.length || key(ordered[0]) !== now) ordered.sort((a, b) => key(b).localeCompare(key(a)));
+  let shownEarlier = false;
+  for (const [y, m] of ordered) {
+    if (!shownEarlier && key([y, m]) < now && ordered.some(x => key(x) >= now)) { h += `<div class="divider">Earlier months</div>`; shownEarlier = true; }
     h += `<h2>${MONTH_FULL[m]} ${y}</h2><div class="grid">` + WD.map(w => `<div class="wd">${w[0]}</div>`).join("");
     const firstDay = new Date(y, m, 1).getDay(), days = new Date(y, m + 1, 0).getDate();
     for (let i = 0; i < firstDay; i++) h += `<div></div>`;
