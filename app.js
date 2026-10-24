@@ -35,7 +35,7 @@ const timeOf = (slot, day) => ((SLOT_AT[slot.split("+")[0]] || []).find(x => x.d
 // ---------- storage ----------
 // Saved in both localStorage and IndexedDB, and marked persistent, so the
 // browser keeps it until you change it.
-const fresh = (strict = false) => ({ data: null, edits: {}, strict, savedAt: 0 });
+const fresh = (strict = false) => ({ data: null, edits: {}, calEdits: {}, strict, savedAt: 0 });
 const validState = s => !!s && typeof s.edits === "object" && (!s.data || validImport(s.data));
 function load() {
   try {
@@ -77,6 +77,8 @@ let flashIds = [];
 function build(data) {
   const cal = {};
   for (const [d, type, detail] of data.cal) cal[d] = { type, detail: detail || "" };
+  // Your own day changes (emergency holidays, extra working days) win over the portal's calendar.
+  for (const [d, v] of Object.entries(state.calEdits || {})) cal[d] = { type: v.type, detail: v.detail, own: true, was: cal[d] || null };
   const dates = Object.keys(cal).sort();
   const isClassDay = d => cal[d] && /^Instructional Day/i.test(cal[d].type);
   const classDays = dates.filter(isClassDay);
@@ -113,7 +115,27 @@ function build(data) {
     course.perSession = Math.max(1, ...course.classes.map(x => x.units));
     return course;
   });
-  return { sem: data.sem, at: data.at, cal, dates, lastTheory, lastLab, orderOf, isClassDay, courses };
+  // Exam periods: runs of CAT / FAT days in the calendar, plus FAT after the last class day.
+  const examOf = d => {
+    const text = cal[d].type + " " + cal[d].detail;
+    if (/LAB\s*FAT/i.test(text)) return { label: "Lab FAT", lab: true };
+    const m = text.match(/CAT\s*-?\s*(I{1,3}|\d)\b/i);
+    if (m) return { label: "CAT-" + m[1].toUpperCase(), lab: false };
+    if (/\bFAT\b/i.test(cal[d].type)) return { label: "FAT", lab: false };
+    return null;
+  };
+  const exams = [];
+  for (const d of dates) {
+    const e = examOf(d);
+    if (!e) continue;
+    const last = exams[exams.length - 1];
+    if (last && last.label === e.label && addDays(last.end, 1) === d) last.end = d;
+    else exams.push({ ...e, start: d, end: d });
+  }
+  if (lastTheory && !exams.some(e => !e.lab && e.start > lastTheory)) exams.push({ label: "FAT", lab: false, start: addDays(lastTheory, 1), end: addDays(lastTheory, 1) });
+  if (lastLab && !exams.some(e => e.lab && e.start > lastLab)) exams.push({ label: "Lab FAT", lab: true, start: addDays(lastLab, 1), end: addDays(lastLab, 1) });
+  exams.sort((a, b) => a.start.localeCompare(b.start));
+  return { sem: data.sem, at: data.at, cal, dates, lastTheory, lastLab, orderOf, isClassDay, courses, exams };
 }
 
 const editKey = (c, k) => `${c.key}|${k.date}|${k.slot}`;
@@ -189,6 +211,33 @@ function verdict(c, s) {
     sub: (s.left || s.FA ? `Ends at ${fmt(s.finalPct)} if you attend the rest` : "No classes left") + now,
   };
 }
+// How many classes you can still miss before the next exam and stay at 75% on that day.
+const nextExam = c => M.exams.find(e => e.lab === c.lab && e.start > todayIso());
+function beforeExam(c, e) {
+  const today = todayIso();
+  let A = 0, T = 0, F = 0, FA = 0;
+  for (const k of c.classes) {
+    const st = statusOf(c, k);
+    if (st === "C") continue;
+    if (k.date <= today) { if (st === null) continue; T += k.units; if (counts(st)) A += k.units; }
+    else if (k.date < e.start) { F += k.units; if (st === "A") FA += k.units; }
+  }
+  const fa = A + F - FA, ft = T + F;
+  if (!ok(fa, ft)) return { n: -1, F, pct: pct(fa, ft) };
+  let n = 0;
+  while (n < F - FA && ok(fa - n - 1, ft)) n++;
+  return { n, F, pct: pct(fa, ft) };
+}
+const shortDate = d => { const x = parse(d); return `${x.getDate()} ${MON[x.getMonth()]}`; };
+function examLine(c) {
+  const e = nextExam(c);
+  if (!e) return "";
+  const r = beforeExam(c, e), u = c.perSession;
+  const text = r.n < 0 ? `you'd be at ${fmt(r.pct)}, attend all` : !r.F ? "no classes left before it"
+    : `can skip ${Math.floor(r.n / u)} of ${Math.round(r.F / u)} ${plural(c, Math.round(r.F / u))}`;
+  return `<div class="exam ${r.n < 0 ? "bad" : ""}">Before ${e.label} (${shortDate(e.start)}): ${text}</div>`;
+}
+
 // One line about planned future absences, shown apart from the current %.
 function planLine(c, s) {
   if (!s.FA) return "";
@@ -205,10 +254,20 @@ function validImport(d) {
 }
 function applyImport(data) {
   if (!validImport(data)) return false;
-  // The portal is the source of truth: drop your own marks on classes it now has.
-  const have = new Set();
-  for (const c of data.courses) for (const [d, slot] of c.rows) have.add(`${c.code}|${c.slot}|${d}|${slot}`);
-  for (const k of Object.keys(state.edits)) if (have.has(k)) { delete state.edits[k]; if (state.editTimes) delete state.editTimes[k]; }
+  // Where the portal now has a record, its P / A / OD replaces yours. Your "Off"
+  // (class not held) marks are always kept. Either way it's noted in the import history.
+  const theirs = new Map();
+  for (const c of data.courses) for (const [d, slot, st] of c.rows) theirs.set(`${c.code}|${c.slot}|${d}|${slot}`, st);
+  const notes = [];
+  for (const k of Object.keys(state.edits)) {
+    if (!theirs.has(k)) continue;
+    const mine = state.edits[k], portal = theirs.get(k);
+    if (mine === "C") { notes.push({ k, mine, portal, kept: true }); continue; }
+    if (mine !== portal) notes.push({ k, mine, portal, kept: false });
+    delete state.edits[k];
+    if (state.editTimes) delete state.editTimes[k];
+  }
+  state.history = [{ at: Date.now(), notes }, ...(state.history || [])].slice(0, 30);
   state.data = data;
   M = build(data);
   save();
@@ -243,7 +302,7 @@ function refreshLink() {
 }
 
 function restore(s) {
-  state = { data: s.data, edits: s.edits || {}, editTimes: s.editTimes || {}, strict: !!s.strict, savedAt: s.savedAt || 0, remTime: s.remTime };
+  state = { data: s.data, edits: s.edits || {}, editTimes: s.editTimes || {}, calEdits: s.calEdits || {}, history: s.history || [], strict: !!s.strict, savedAt: s.savedAt || 0, remTime: s.remTime };
   M = build(state.data);
   save();
 }
@@ -315,7 +374,7 @@ function renderHeader() {
   $("#overall").textContent = fmtx(o.exact);
   $("#overallSub").innerHTML = `Now · ${o.A}/${o.T} attended · ${risky ? risky + " subject" + (risky > 1 ? "s" : "") + " at the limit" : "all subjects safe"}` +
     `<span class="endchip">${o.planned ? "With your plans" : "If you attend the rest"}: ends ${fmtx(o.end)}</span>`;
-  const n = Object.keys(state.edits).length, b = document.querySelector('[data-tab="log"]');
+  const n = editsList().length + Object.keys(state.calEdits || {}).length, b = document.querySelector('[data-tab="log"]');
   if (b) b.innerHTML = `Changes${n ? ` <span class="badge">${n}</span>` : ""}`;
 }
 
@@ -411,6 +470,8 @@ function renderDay() {
   } else {
     h += `<p class="empty">${info && /holiday/i.test(info.type) ? "🎉 " : ""}No classes</p>`;
   }
+  if (info && info.own) h += `<div class="alert warn">You changed this day yourself (the portal had: ${esc(info.was ? info.was.type : "nothing")}). Undo it in Changes.</div>`;
+  if (info && sel <= M.lastTheory) h += `<button class="link" data-act="dayEdit">Emergency change: make this a holiday or a working day…</button>`;
 
   h += `<h2>Subjects</h2>${cardsHtml()}`;
   $("#tab-day").innerHTML = h;
@@ -448,6 +509,12 @@ function summaryText() {
   return `Attendance · ${M.sem} · ${nice(today)}\nOverall: ${fmt(o.pct)} (${o.A}/${o.T})\n${lines.join("\n")}`;
 }
 
+function examsHtml() {
+  const up = M.exams.filter(e => e.end >= todayIso());
+  if (!up.length) return "";
+  return `<div class="exams">${up.map(e => `<span class="echip${e.lab ? " lab" : ""}">${e.label} · ${shortDate(e.start)}${e.end !== e.start ? `–${shortDate(e.end)}` : ""}</span>`).join("")}</div>`;
+}
+
 function cardsHtml() {
   let h = `<div class="cards">`;
   for (const c of M.courses) {
@@ -461,6 +528,7 @@ function cardsHtml() {
         <div class="bar"><i style="width:${Math.min(100, s.pct || 0)}%"></i><span style="left:${MIN}%"></span></div>
         <div class="verdict">${v.text}</div>
         <small>${v.sub}${s.unmarked ? ` · ${s.unmarked} past ${s.unmarked === 1 ? "class" : "classes"} not marked yet` : ""}</small>
+        ${examLine(c)}
         ${planLine(c, s)}
       </button>`;
   }
@@ -469,7 +537,7 @@ function cardsHtml() {
 
 function renderSubjects() {
   const c = openCourse && course(openCourse);
-  if (!c) { $("#tab-subj").innerHTML = `<div class="rowhead"><p class="note">Tap a subject to see every class and edit it.</p><button class="inline" data-act="share">Share summary</button></div>${cardsHtml()}`; return; }
+  if (!c) { $("#tab-subj").innerHTML = `<div class="rowhead"><p class="note">Tap a subject to see every class and edit it.</p><button class="inline" data-act="share">Share summary</button></div>${examsHtml()}${cardsHtml()}`; return; }
   const s = stats(c), v = verdict(c, s), today = todayIso();
   let h = `
     <button class="link left" data-act="back">‹ All subjects</button>
@@ -480,6 +548,7 @@ function renderSubjects() {
       </div>
       <div class="verdict">${v.text}</div>
       <small>${s.A}/${s.T} attended · exact ${fmtx(s.exact)} · portal showed ${c.portal[0]}/${c.portal[1]} at import · ${v.sub}</small>
+      ${examLine(c)}
       ${planLine(c, s)}
     </div>
     <table class="classes"><thead><tr><th>Date</th><th>Status</th><th>% so far</th></tr></thead><tbody>`;
@@ -532,6 +601,28 @@ function renderLog() {
     <div class="quick"><button class="danger" data-act="clearPlanned">Undo all planned</button></div>` : `<p class="empty small">No planned absences. Mark a future class Absent to plan one.</p>`;
   h += `<h2>Past changes (${past.length})</h2>`;
   h += past.length ? past.map(row).join("") : `<p class="empty small">No changes to past classes.</p>`;
+  const days = Object.keys(state.calEdits || {}).sort();
+  h += `<h2>Calendar changes (${days.length})</h2>`;
+  h += days.length ? days.map(d => {
+    const info = M.cal[d];
+    return `<div class="logrow"><div class="sinfo"><button class="dlink" data-date="${d}">${nice(d)}</button>
+      <b>${esc(info.type)}${/Day Order/.test(info.detail) ? ` · ${esc(M.orderOf(d))} timetable` : ""}</b>
+      <small>Portal: ${esc(info.was ? info.was.type : "nothing")} · changed ${ago(state.calEdits[d].at)}</small></div>
+      <div class="logact"><button class="undo" data-calundo="${d}">Undo</button></div></div>`;
+  }).join("") : `<p class="empty small">No emergency day changes.</p>`;
+  const hist = state.history || [];
+  h += `<h2>Import history (${hist.length})</h2>`;
+  h += hist.length ? hist.map(ev => {
+    const lines = ev.notes.map(n => {
+      const [code, cslot, d] = n.k.split("|"), c = course(`${code}|${cslot}`);
+      return `<li>${nice(d)} · ${esc(c ? c.name : code)}: ${n.kept
+        ? `kept your <b>${STATUS[n.mine]}</b> (portal: ${STATUS[n.portal] || n.portal})`
+        : `your ${STATUS[n.mine]} → portal's <b>${STATUS[n.portal] || n.portal}</b>`}</li>`;
+    }).join("");
+    const t = new Date(ev.at);
+    return `<div class="logrow"><div class="sinfo"><b>Imported ${nice(iso(t))}, ${pad(t.getHours())}:${pad(t.getMinutes())}</b>
+      ${lines ? `<ul class="hist">${lines}</ul>` : `<small>None of your marks were affected.</small>`}</div></div>`;
+  }).join("") : `<p class="empty small">No imports recorded yet.</p>`;
   $("#tab-log").innerHTML = h;
 }
 
@@ -643,6 +734,62 @@ function openGoogleCalendar() {
   window.open(url, "_blank", "noopener");
 }
 
+// ---------- emergency day changes ----------
+const FULL_DAY = { Mon: "Monday", Tue: "Tuesday", Wed: "Wednesday", Thu: "Thursday", Fri: "Friday" };
+// Classes that would meet on a day following this timetable (ignoring the portal's records).
+function classesIf(order) {
+  if (!order) return [];
+  return M.courses.filter(c => (!c.lab || sel <= M.lastLab) && c.slots.some(s => (SLOT_AT[s] || []).some(x => x.day === order)));
+}
+function openDaySheet() {
+  const info = M.cal[sel], own = (state.calEdits || {})[sel];
+  const nowNames = M.courses.filter(c => c.classes.some(k => k.date === sel && !k.portal)).map(c => c.name);
+  const wd = WD[parse(sel).getDay()], defOrder = FULL_DAY[wd] ? wd : "Mon";
+  $("#sheet").innerHTML = `
+    <div class="sheetbox" role="dialog" aria-modal="true">
+      <h3>Change ${nice(sel)}</h3>
+      <p class="note">Right now: <b>${esc(info.type)}</b>${info.detail ? " · " + esc(info.detail.replace(/^\(|\)$/g, "")) : ""}</p>
+      <label class="opt"><input type="radio" name="dk" value="hol" checked> Holiday: no classes</label>
+      <label class="opt"><input type="radio" name="dk" value="work"> Working day, following the
+        <select id="dorder">${Object.keys(FULL_DAY).map(d => `<option value="${d}" ${d === defOrder ? "selected" : ""}>${FULL_DAY[d]}</option>`).join("")}</select> timetable</label>
+      ${own ? `<label class="opt"><input type="radio" name="dk" value="undo"> Undo my change (back to the portal's calendar)</label>` : ""}
+      <div class="stern" id="dimpact"></div>
+      <label class="field">Type <b>CHANGE</b> to confirm <input id="dconfirm" autocomplete="off" autocapitalize="characters" placeholder="CHANGE"></label>
+      <div class="quick"><button data-act="sheetClose">Cancel</button><button class="dangerbtn" data-act="dayApply" id="dapply" disabled>Apply</button></div>
+    </div>`;
+  $("#sheet").hidden = false;
+  $("#sheet").dataset.now = JSON.stringify(nowNames);
+  updateImpact();
+}
+function updateImpact() {
+  const kind = (document.querySelector("input[name=dk]:checked") || {}).value;
+  const nowNames = JSON.parse($("#sheet").dataset.now || "[]");
+  let what;
+  if (kind === "hol") what = nowNames.length ? `<b>${nowNames.length} ${nowNames.length === 1 ? "class" : "classes"}</b> on this day (${nowNames.map(esc).join(", ")}) will be <b>removed</b>.` : "No classes are scheduled on this day, so only the calendar changes.";
+  else if (kind === "work") { const add = classesIf($("#dorder").value).map(c => c.name); what = `This day will have <b>${add.length} ${add.length === 1 ? "class" : "classes"}</b> (${add.map(esc).join(", ") || "none"}), replacing what's there now.`; }
+  else what = "This day goes back to exactly what the portal's calendar says.";
+  $("#dimpact").innerHTML = `<b>⚠ Only do this if your college has officially announced it.</b>
+    <ul><li>${what}</li>
+    <li>Your current %, "can skip" numbers and end-of-semester % change for <b>every subject</b>.</li>
+    <li>It stays even when you import again. Classes the portal has already recorded still count as recorded.</li>
+    <li>If you get it wrong, your numbers will be wrong until you undo it (in Changes).</li></ul>`;
+  $("#dapply").disabled = $("#dconfirm").value.trim().toUpperCase() !== "CHANGE";
+}
+function applyDayChange() {
+  const kind = (document.querySelector("input[name=dk]:checked") || {}).value;
+  state.calEdits = state.calEdits || {};
+  if (kind === "hol") state.calEdits[sel] = { type: "Holiday", detail: "(Declared by you)", at: Date.now() };
+  if (kind === "work") { const o = $("#dorder").value; state.calEdits[sel] = { type: "Instructional Day", detail: `(${FULL_DAY[o]} Day Order · declared by you)`, at: Date.now() }; }
+  if (kind === "undo") delete state.calEdits[sel];
+  const before = overall(todayIso());
+  M = build(state.data);
+  save();
+  $("#sheet").hidden = true;
+  render();
+  const after = overall(todayIso());
+  toast(`${nice(sel)} is now ${kind === "hol" ? "a holiday" : kind === "work" ? "a working day" : "back to the portal's calendar"}.<br>Now: ${fmtx(before.exact)} → <b>${fmtx(after.exact)}</b> · Semester end: ${fmtx(before.end)} → <b>${fmtx(after.end)}</b>`);
+}
+
 // ---------- events ----------
 let toastTimer;
 function toast(msg) {
@@ -718,6 +865,14 @@ document.addEventListener("click", e => {
     if (ups.length) change(ups);
     return;
   }
+  if (t.dataset.calundo) {
+    const before = overall(todayIso());
+    delete state.calEdits[t.dataset.calundo];
+    M = build(state.data); save(); render();
+    const after = overall(todayIso());
+    toast(`${nice(t.dataset.calundo)} is back to the portal's calendar.<br>Now: ${fmtx(before.exact)} → <b>${fmtx(after.exact)}</b> · Semester end: ${fmtx(before.end)} → <b>${fmtx(after.end)}</b>`);
+    return;
+  }
   if (t.dataset.undo) {
     for (const c of M.courses) for (const k of c.classes) if (editKey(c, k) === t.dataset.undo) { change([[c, k, null]]); return; }
     return;
@@ -725,6 +880,9 @@ document.addEventListener("click", e => {
   if (t.dataset.course) { openCourse = t.dataset.course; tab = "subj"; render(); window.scrollTo(0, 0); return; }
   if (t.dataset.date) { sel = t.dataset.date; tab = "day"; render(); window.scrollTo(0, 0); return; }
   const act = t.dataset.act;
+  if (act === "dayEdit") openDaySheet();
+  if (act === "sheetClose") $("#sheet").hidden = true;
+  if (act === "dayApply" && !t.disabled) applyDayChange();
   if (act === "prev") { sel = addDays(sel, -1); render(); }
   if (act === "next") { sel = addDays(sel, 1); render(); }
   if (act === "today") { sel = todayIso(); render(); }
@@ -769,7 +927,11 @@ document.addEventListener("click", e => {
   if (act === "reset" && armed(t, "Tap again to remove")) { state = fresh(state.strict); M = null; save(); render(); }
 });
 
+document.addEventListener("input", e => {
+  if (e.target.id === "dconfirm") updateImpact();
+});
 document.addEventListener("change", e => {
+  if (e.target.name === "dk" || e.target.id === "dorder") updateImpact();
   if (e.target.id === "strict") { state.strict = e.target.checked; save(); renderHeader(); }
   if (e.target.id === "remTime" && e.target.value) { state.remTime = e.target.value; save(); }
   if (e.target.id === "importFile" && e.target.files[0]) {

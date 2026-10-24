@@ -229,3 +229,23 @@ table.classes .seg { display: inline-flex; }
 .logact { display: flex; gap: 8px; align-items: center; }
 .undo { border: 1px solid var(--line); background: transparent; border-radius: 10px; padding: 7px 12px; color: var(--muted); font-size: 12.5px; }
 .empty.small { padding: 8px 0; font-size: 13.5px; text-align: left; }
+
+.exam { margin-top: 6px; font-size: 12.5px; font-weight: 600; color: var(--muted); }
+.exam.bad { color: var(--bad); }
+.exams { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.echip { font-size: 12px; padding: 3px 10px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.echip.lab { background: var(--warn-soft); color: var(--warn); }
+ul.hist { margin: 6px 0 0; padding-left: 18px; font-size: 13px; color: var(--muted); }
+
+.sheet { position: fixed; inset: 0; z-index: 50; background: rgba(0, 0, 0, .55); display: flex; align-items: flex-end; justify-content: center; }
+.sheet[hidden] { display: none; }
+.sheetbox { width: 100%; max-width: 560px; max-height: 92vh; overflow: auto; background: var(--panel); border-radius: 18px 18px 0 0; padding: 18px 16px calc(18px + env(safe-area-inset-bottom)); }
+.sheetbox h3 { margin: 0 0 4px; font-size: 18px; }
+.opt { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 14.5px; }
+.opt select { font: inherit; padding: 4px 6px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--text); }
+.stern { margin: 12px 0; padding: 12px; border-radius: 12px; background: var(--bad-soft); color: var(--bad); font-size: 13.5px; border: 1px solid var(--bad); }
+.stern ul { margin: 6px 0 0; padding-left: 18px; }
+.stern li { margin-bottom: 4px; }
+#dconfirm { width: 100%; margin-top: 4px; border: 1px solid var(--line); background: var(--bg); border-radius: 10px; padding: 10px; letter-spacing: .1em; }
+.quick .dangerbtn, .dangerbtn { background: var(--bad); color: #fff; border: 0; border-radius: 10px; padding: 10px; font-weight: 700; flex: 1; }
+.quick .dangerbtn:disabled, .dangerbtn:disabled { opacity: .35; }

@@ -1,5 +1,5 @@
 // Serve from cache for offline use, refresh the cache in the background.
-const CACHE = "attendance-v6";
+const CACHE = "attendance-v7";
 const FILES = ["./", "index.html", "style.css", "config.js", "app.js", "importer.js", "manifest.webmanifest",
   "icons/icon-192.png", "icons/icon-512.png", "icons/apple-touch-icon.png"];
 
