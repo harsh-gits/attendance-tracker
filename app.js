@@ -1,7 +1,7 @@
 "use strict";
 
 const KEY = "attendance.v3";
-const APP_VERSION = "v17"; // keep in step with CACHE in sw.js
+const APP_VERSION = "v18"; // keep in step with CACHE in sw.js
 const WD = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const MONTH_FULL = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -344,7 +344,7 @@ async function handleHash() {
 }
 
 const APP_URL = location.href.split("#")[0].split("?")[0].replace(/index\.html$/, "");
-// Kept short (minified, light escaping) because phone browsers choke on very long bookmarks.
+// Laptop bookmark (drag to the bookmarks bar): the minified import code, lightly escaped.
 const bookmarklet = "javascript:" + ("void (" + PORTAL_IMPORT.toString().replace("__APP__", APP_URL) + ")();")
   .replace(/%/g, "%25").replace(/#/g, "%23").replace(/\n/g, "%0A");
 // Phones cut bookmarks off at about 4,900 characters, so the phone bookmark carries
@@ -1115,8 +1115,6 @@ document.addEventListener("click", e => {
   if (act === "dayEdit") openDaySheet();
   if (act === "sheetClose") $("#sheet").hidden = true;
   if (act === "dayApply" && !t.disabled) applyDayChange();
-  if (act === "prev") moveTo(addDays(sel, -1));
-  if (act === "next") moveTo(addDays(sel, 1));
   if (act === "prevWeek") go(() => { sel = addDays(sel, -7); render(); }, "prev");
   if (act === "nextWeek") go(() => { sel = addDays(sel, 7); render(); }, "next");
   if (act === "today") moveTo(todayIso());

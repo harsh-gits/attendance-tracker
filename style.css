@@ -128,7 +128,6 @@ main { max-width: 640px; margin: 0 auto; padding: 14px 16px; }
 .daynav .date b { font-size: 19px; font-weight: 750; letter-spacing: -.01em; }
 .chip { border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 6px 14px; font-size: 13px; font-weight: 600; flex-shrink: 0; }
 .chip.solid { background: var(--accent); color: #fff; border: 0; }
-.icon { width: 44px; height: 44px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel); font-size: 24px; line-height: 1; }
 .link { display: block; margin: 10px auto 0; background: none; border: 0; color: var(--accent); padding: 8px; font-weight: 600; }
 .link.left { margin: 0 0 6px; padding-left: 0; }
 .note { color: var(--muted); font-size: 13px; margin: 12px 2px; }
@@ -285,7 +284,6 @@ em.off { color: var(--off); }
 .logact { display: flex; gap: 8px; align-items: center; }
 .undo { border: 1px solid var(--line); background: transparent; border-radius: 10px; padding: 7px 12px; color: var(--muted); font-size: 12.5px; font-weight: 600; }
 ul.hist { margin: 6px 0 0; padding-left: 18px; font-size: 13px; color: var(--muted); }
-table.base { width: 100%; border-collapse: collapse; }
 
 /* ---------- bottom nav ---------- */
 .tabs {

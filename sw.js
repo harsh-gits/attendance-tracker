@@ -1,6 +1,6 @@
 // Network first, so a new version shows up as soon as it's live; the cache
 // keeps the app working offline. Bump CACHE (and APP_VERSION in app.js) on release.
-const CACHE = "attendance-v17";
+const CACHE = "attendance-v18";
 const FILES = ["./", "index.html", "style.css", "config.js", "app.js", "importer.min.js", "manifest.webmanifest",
   "icons/icon-192.png", "icons/icon-512.png", "icons/apple-touch-icon.png"];
 
