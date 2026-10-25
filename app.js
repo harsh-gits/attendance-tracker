@@ -239,11 +239,15 @@ function examLine(c) {
 }
 
 // One line about planned future absences, shown apart from the current %.
-function planLine(c, s) {
-  if (!s.FA) return "";
+// Your marks on this subject's future classes.
+const plannedOf = c => c.classes.filter(k => k.date > todayIso() && state.edits[editKey(c, k)]);
+function planLine(c, s, withClear) {
+  const marks = plannedOf(c).length;
+  if (!s.FA && !marks) return "";
   const u = c.perSession, n = Math.round(s.FA / u);
   const left = s.canSkip < 0 ? "over the limit" : `buffer ${Math.floor(s.canSkip / u)} left (was ${Math.max(0, Math.floor(s.canSkipNoPlan / u))})`;
-  return `<div class="plan">Planned: ${n} ${n === 1 ? "absence" : "absences"} → ends ${fmt(s.finalPct)} · ${left}</div>`;
+  const text = s.FA ? `Planned: ${n} ${n === 1 ? "absence" : "absences"} → ends ${fmt(s.finalPct)} · ${left}` : `${marks} planned ${marks === 1 ? "mark" : "marks"}`;
+  return `<div class="plan"><span>${text}</span>${withClear ? `<button class="plan-x" data-clearplan="${esc(c.key)}">Clear planned</button>` : ""}</div>`;
 }
 const skipShort = (c, s) => (s.canSkip < 0 ? `ends ${fmt(s.finalPct)} ⚠︎` : `can skip ${Math.floor(s.canSkip / c.perSession)}`);
 
@@ -609,7 +613,7 @@ function renderSubjects() {
       <div class="verdict">${v.text}</div>
       <small>${s.A}/${s.T} attended · exact ${fmtx(s.exact)} · portal showed ${c.portal[0]}/${c.portal[1]} at import · ${v.sub}</small>
       ${examLine(c)}
-      ${planLine(c, s)}
+      ${planLine(c, s, true)}
     </div>
     <table class="classes"><thead><tr><th>Date</th><th>Status</th><th>% so far</th></tr></thead><tbody>`;
   // Running % is worked out in date order, then shown with the latest classes on top.
@@ -665,7 +669,10 @@ function renderLog() {
   const o = overall(today);
   let h = `<p class="note">Everything you marked yourself. Change it here, or undo it to go back to the portal's record (or blank).</p>`;
   h += `<h2>Planned · future (${future.length})</h2>`;
-  h += future.length ? `<div class="planbox">Your current attendance doesn't include these. With them, the semester ends at <b>${fmtx(o.end)}</b>.</div>${future.map(row).join("")}
+  const per = M.courses.map(c => [c, plannedOf(c).length]).filter(([, n]) => n);
+  const perSubject = per.length > 1 || future.length > 1
+    ? `<div class="clearrow">${per.map(([c, n]) => `<button class="chip" data-clearplan="${esc(c.key)}">Clear ${esc(c.name)} (${n})</button>`).join("")}</div>` : "";
+  h += future.length ? `<div class="planbox">Your current attendance doesn't include these. With them, the semester ends at <b>${fmtx(o.end)}</b>.</div>${perSubject}${future.map(row).join("")}
     <div class="quick"><button class="danger" data-act="clearPlanned">Undo all planned</button></div>` : `<p class="empty small">No planned absences. Mark a future class Absent to plan one.</p>`;
   h += `<h2>Past changes (${past.length})</h2>`;
   h += past.length ? past.map(row).join("") : `<p class="empty small">No changes to past classes.</p>`;
@@ -1057,6 +1064,13 @@ document.addEventListener("click", e => {
     return;
   }
   if (t.dataset.theme) { state.theme = t.dataset.theme; applyTheme(); save(); render(); return; }
+  if (t.dataset.clearplan) {
+    const c = course(t.dataset.clearplan);
+    if (!c || !armed(t, "Tap again to clear")) return;
+    const ups = plannedOf(c).map(k => [c, k, null]);
+    if (ups.length) change(ups);
+    return;
+  }
   if (t.dataset.calundo) {
     const before = overall(todayIso());
     delete state.calEdits[t.dataset.calundo];
