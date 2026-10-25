@@ -362,6 +362,7 @@ function render() {
 
 function renderHeader() {
   if (!M) {
+    setRing(0, "");
     $("#sem").textContent = "Attendance";
     $("#overall").textContent = "Welcome";
     $("#overallSub").textContent = "Import once from your student portal to get started";
@@ -371,11 +372,13 @@ function renderHeader() {
   let risky = 0;
   for (const c of M.courses) { const s = stats(c); if (s.canSkip < 0 || Math.floor(s.canSkip / c.perSession) === 0) risky++; }
   $("#sem").textContent = M.sem;
-  $("#overall").textContent = fmtx(o.exact);
-  $("#overallSub").innerHTML = `Now · ${o.A}/${o.T} attended · ${risky ? risky + " subject" + (risky > 1 ? "s" : "") + " at the limit" : "all subjects safe"}` +
-    `<span class="endchip">${o.planned ? "With your plans" : "If you attend the rest"}: ends ${fmtx(o.end)}</span>`;
-  const n = editsList().length + Object.keys(state.calEdits || {}).length, b = document.querySelector('[data-tab="log"]');
-  if (b) b.innerHTML = `Changes${n ? ` <span class="badge">${n}</span>` : ""}`;
+  countTo($("#overall"), o.exact);
+  const below = M.courses.some(c => { const x = stats(c); return !ok(x.A, x.T) || x.canSkip < 0; });
+  setRing(o.exact, below ? "bad" : "");
+  $("#overallSub").innerHTML = `<span>${o.A}/${o.T} attended · ${risky ? `<b>${risky}</b> at the limit` : "all subjects safe"}</span>` +
+    `<span class="endchip">${o.planned ? "With your plans" : "If you attend the rest"} → ${fmtx(o.end)}</span>`;
+  const n = editsList().length + Object.keys(state.calEdits || {}).length, b = document.querySelector('[data-tab="log"] span');
+  if (b) b.innerHTML = `Changes${n ? `<i class="badge">${n}</i>` : ""}`;
 }
 
 function importHtml(first) {
@@ -430,13 +433,11 @@ function renderDay() {
   for (const c of M.courses) for (const k of c.classes) if (k.date === sel) sessions.push({ c, k });
   sessions.sort((a, b) => a.k.time.localeCompare(b.k.time));
 
-  let h = alertsHtml() + `
+  let h = installHtml() + alertsHtml() + weekStrip() + `
     <div class="daynav">
-      <button class="icon" data-act="prev" aria-label="Previous day">‹</button>
       <div class="date"><b>${sel === today ? "Today · " : ""}${nice(sel)}</b><small>${esc(label)}</small></div>
-      <button class="icon" data-act="next" aria-label="Next day">›</button>
-    </div>
-    ${sel !== today ? `<button class="link" data-act="today">Back to today</button>` : ""}`;
+      ${sel !== today ? `<button class="chip" data-act="today">Today</button>` : ""}
+    </div>`;
 
   if (sessions.length) {
     h += `<div class="sessions">`;
@@ -478,6 +479,42 @@ function renderDay() {
   flashIds = [];
 }
 
+// Seven-day strip (Mon–Sun) around the selected day, with arrows to move a week.
+function weekStrip() {
+  const d = parse(sel), monday = addDays(sel, -((d.getDay() + 6) % 7)), today = todayIso();
+  let h = `<div class="week"><button class="wk-arrow" data-act="prevWeek" aria-label="Previous week">‹</button><div class="wk-days">`;
+  for (let i = 0; i < 7; i++) {
+    const ds = addDays(monday, i), x = parse(ds), info = M.cal[ds];
+    let abs = 0, cls = 0, unm = 0;
+    for (const c of M.courses) for (const k of c.classes) if (k.date === ds) {
+      cls++;
+      const st = statusOf(c, k);
+      if (st === "A") abs++;
+      if (st === null && ds <= today) unm++;
+    }
+    const kind = !info ? "off" : /holiday/i.test(info.type) ? "hol" : /CAT|FAT/i.test(info.type) ? "exam" : cls ? "class" : "off";
+    const mark = abs ? `<i class="m abs"></i>` : unm ? `<i class="m unm"></i>` : cls ? `<i class="m"></i>` : "";
+    h += `<button class="wk ${kind}${ds === sel ? " sel" : ""}${ds === today ? " today" : ""}" data-date="${ds}"><small>${WD[x.getDay()][0]}</small><b>${x.getDate()}</b>${mark}</button>`;
+  }
+  return h + `</div><button class="wk-arrow" data-act="nextWeek" aria-label="Next week">›</button></div>`;
+}
+
+// Prompt to install / bookmark, until installed or dismissed.
+let installEvt = null;
+window.addEventListener("beforeinstallprompt", e => { e.preventDefault(); installEvt = e; if (M && tab === "day") render(); });
+window.addEventListener("appinstalled", () => { installEvt = null; render(); });
+const standalone = () => matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+function installHtml() {
+  if (standalone() || location.protocol === "file:") return "";
+  try { if (localStorage.getItem("installHidden") === "1") return ""; } catch (e) { /* ignore */ }
+  const ios = /iphone|ipad|ipod/i.test(navigator.userAgent), mobile = /android|iphone|ipad|ipod/i.test(navigator.userAgent);
+  const how = installEvt ? `<button class="chip solid" data-act="install">Install app</button>`
+    : ios ? `<span>Tap <b>Share</b> <span class="ios-share">⬆︎</span> → <b>Add to Home Screen</b>. It also keeps your data safe.</span>`
+    : mobile ? `<span>Browser menu → <b>Install app</b> or <b>Add to Home screen</b>.</span>`
+    : `<span>Press <b>${/mac/i.test(navigator.platform) ? "⌘" : "Ctrl"}+D</b> to bookmark, or use the install icon in the address bar.</span>`;
+  return `<div class="install"><div class="ii">📲</div><div class="it"><b>Keep this app one tap away</b>${how}</div><button class="x" data-act="hideInstall" aria-label="Dismiss">✕</button></div>`;
+}
+
 function alertsHtml() {
   if (pendingRestore) {
     return `<div class="alert warn">That link has older data than this app.
@@ -515,6 +552,26 @@ function examsHtml() {
   return `<div class="exams">${up.map(e => `<span class="echip${e.lab ? " lab" : ""}">${e.label} · ${shortDate(e.start)}${e.end !== e.start ? `–${shortDate(e.end)}` : ""}</span>`).join("")}</div>`;
 }
 
+// Running % across the semester as a tiny area chart, with the 75% line.
+function spark(c) {
+  const today = todayIso(), pts = [];
+  let A = 0, T = 0;
+  for (const k of c.classes) {
+    if (k.date > today) break;
+    const st = statusOf(c, k);
+    if (!st || st === "C") continue;
+    T += k.units; if (counts(st)) A += k.units;
+    pts.push((A * 100) / T);
+  }
+  if (pts.length < 2) return `<div class="bar"><i style="width:${Math.min(100, pts[0] || 0)}%"></i></div>`;
+  const W = 300, H = 44, lo = Math.min(60, ...pts) - 2, hi = 100;
+  const y = v => (H - ((v - lo) / (hi - lo)) * H).toFixed(1), x = i => ((i / (pts.length - 1)) * W).toFixed(1);
+  const line = pts.map((v, i) => `${i ? "L" : "M"}${x(i)} ${y(v)}`).join("");
+  return `<svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
+    <path class="area" d="${line}L${W} ${H}L0 ${H}Z"/><line class="min" x1="0" x2="${W}" y1="${y(MIN)}" y2="${y(MIN)}"/>
+    <path class="ln" d="${line}" pathLength="1"/><circle class="end" cx="${W}" cy="${y(pts[pts.length - 1])}" r="3.5"/></svg>`;
+}
+
 function cardsHtml() {
   let h = `<div class="cards">`;
   // Lowest attendance first, so the subjects that need attention are on top.
@@ -528,7 +585,7 @@ function cardsHtml() {
           <div><b>${esc(c.name)}</b><small>${esc(c.code)} · ${esc(c.slot)} · ${s.A}/${s.T} · exact ${fmtx(s.exact)}</small></div>
           <div class="pct">${fmt(s.pct)}</div>
         </div>
-        <div class="bar"><i style="width:${Math.min(100, s.pct || 0)}%"></i><span style="left:${MIN}%"></span></div>
+        ${spark(c)}
         <div class="verdict">${v.text}</div>
         <small>${v.sub}${s.unmarked ? ` · ${s.unmarked} past ${s.unmarked === 1 ? "class" : "classes"} not marked yet` : ""}</small>
         ${examLine(c)}
@@ -845,6 +902,55 @@ function applyDayChange() {
   toast(`${nice(sel)} is now ${kind === "hol" ? "a holiday" : kind === "work" ? "a working day" : "back to the portal's calendar"}.<br>Now: ${fmtx(before.exact)} → <b>${fmtx(after.exact)}</b> · Semester end: ${fmtx(before.end)} → <b>${fmtx(after.end)}</b>`);
 }
 
+// ---------- motion ----------
+const calm = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+// Smooth cross-fade between screens where the browser supports it.
+function go(fn, dir) {
+  if (!document.startViewTransition || calm()) { fn(); return; }
+  document.documentElement.dataset.dir = dir || "";
+  document.startViewTransition(fn);
+}
+function setRing(p, tone) {
+  const fg = $("#ringFg");
+  if (!fg) return;
+  fg.style.strokeDashoffset = 100 - Math.max(0, Math.min(100, p || 0));
+  $(".top").dataset.tone = tone;
+}
+let shownPct = null, countRaf = 0;
+function countTo(el, target) {
+  if (target === null) { el.textContent = "–"; shownPct = null; return; }
+  const from = shownPct === null ? (calm() ? target : Math.max(0, target - 12)) : shownPct, t0 = performance.now(), dur = 650;
+  cancelAnimationFrame(countRaf);
+  const tick = now => {
+    const k = Math.min(1, (now - t0) / dur), e = 1 - Math.pow(1 - k, 3);
+    el.textContent = fmtx(from + (target - from) * e);
+    if (k < 1) countRaf = requestAnimationFrame(tick); else shownPct = target;
+  };
+  countRaf = requestAnimationFrame(tick);
+}
+const buzz = ms => { try { navigator.vibrate && navigator.vibrate(ms); } catch (e) { /* ignore */ } };
+// Small confetti burst when a subject climbs back to the limit.
+function confetti() {
+  if (calm()) return;
+  const cv = $("#fx"), cx = cv.getContext("2d"), dpr = devicePixelRatio || 1;
+  cv.width = innerWidth * dpr; cv.height = innerHeight * dpr; cx.scale(dpr, dpr);
+  const colors = ["#22c55e", "#6366f1", "#f59e0b", "#ec4899", "#06b6d4"];
+  const ps = Array.from({ length: 90 }, () => ({
+    x: innerWidth / 2, y: innerHeight * 0.35, vx: (Math.random() - 0.5) * 9, vy: -Math.random() * 9 - 3,
+    s: 4 + Math.random() * 4, r: Math.random() * 6, vr: (Math.random() - 0.5) * 0.3, c: colors[(Math.random() * colors.length) | 0],
+  }));
+  const t0 = performance.now();
+  const draw = now => {
+    cx.clearRect(0, 0, innerWidth, innerHeight);
+    for (const p of ps) {
+      p.vy += 0.25; p.x += p.vx; p.y += p.vy; p.r += p.vr;
+      cx.save(); cx.translate(p.x, p.y); cx.rotate(p.r); cx.fillStyle = p.c; cx.fillRect(-p.s / 2, -p.s / 4, p.s, p.s / 2); cx.restore();
+    }
+    if (now - t0 < 1600) requestAnimationFrame(draw); else cx.clearRect(0, 0, innerWidth, innerHeight);
+  };
+  requestAnimationFrame(draw);
+}
+
 // ---------- events ----------
 let toastTimer;
 function toast(msg) {
@@ -883,6 +989,8 @@ function change(updates) {
   }
   const o1 = overall(today);
   flashIds = [...seen];
+  buzz(updates.some(([, , st]) => st === "A") ? [12, 40, 12] : 10);
+  if ([...seen].some(key => { const c = course(key); return c && !ok(before.get(key).A, before.get(key).T) && ok(stats(c).A, stats(c).T); })) confetti();
   render();
   toast(lines.join("<br>") + (future
     ? `<br>Now: ${fmtx(o1.exact)} (unchanged) · Semester end: ${fmtx(o0.end)} → <b>${fmtx(o1.end)}</b>`
@@ -907,7 +1015,11 @@ function copyText(text) {
 document.addEventListener("click", e => {
   const t = e.target.closest("button");
   if (!t) return;
-  if (t.dataset.tab) { tab = t.dataset.tab; if (tab === "subj") openCourse = null; render(); window.scrollTo(0, 0); return; }
+  if (t.dataset.tab) {
+    if (t.dataset.tab === tab && !(tab === "subj" && openCourse)) { window.scrollTo({ top: 0, behavior: "smooth" }); return; }
+    go(() => { tab = t.dataset.tab; if (tab === "subj") openCourse = null; render(); window.scrollTo(0, 0); }, "fade");
+    return;
+  }
   if (t.dataset.st) {
     const seg = t.closest(".seg"), c = course(seg.dataset.key);
     const k = c.classes.find(x => x.date === seg.dataset.date && x.slot === seg.dataset.slot);
@@ -932,16 +1044,29 @@ document.addEventListener("click", e => {
     for (const c of M.courses) for (const k of c.classes) if (editKey(c, k) === t.dataset.undo) { change([[c, k, null]]); return; }
     return;
   }
-  if (t.dataset.course) { openCourse = t.dataset.course; tab = "subj"; render(); window.scrollTo(0, 0); return; }
-  if (t.dataset.date) { sel = t.dataset.date; tab = "day"; render(); window.scrollTo(0, 0); return; }
+  if (t.dataset.course) {
+    const key = t.dataset.course;
+    go(() => { openCourse = key; tab = "subj"; render(); window.scrollTo(0, 0); }, "next");
+    return;
+  }
+  if (t.dataset.date) {
+    const d = t.dataset.date, dir = d > sel ? "next" : d < sel ? "prev" : "";
+    const inStrip = !!t.closest(".week");
+    go(() => { sel = d; tab = "day"; render(); if (!inStrip) window.scrollTo(0, 0); }, dir);
+    return;
+  }
   const act = t.dataset.act;
   if (act === "dayEdit") openDaySheet();
   if (act === "sheetClose") $("#sheet").hidden = true;
   if (act === "dayApply" && !t.disabled) applyDayChange();
-  if (act === "prev") { sel = addDays(sel, -1); render(); }
-  if (act === "next") { sel = addDays(sel, 1); render(); }
-  if (act === "today") { sel = todayIso(); render(); }
-  if (act === "back") { openCourse = null; render(); }
+  if (act === "prev") go(() => { sel = addDays(sel, -1); render(); }, "prev");
+  if (act === "next") go(() => { sel = addDays(sel, 1); render(); }, "next");
+  if (act === "prevWeek") go(() => { sel = addDays(sel, -7); render(); }, "prev");
+  if (act === "nextWeek") go(() => { sel = addDays(sel, 7); render(); }, "next");
+  if (act === "today") { const d = todayIso(), dir = d > sel ? "next" : "prev"; go(() => { sel = d; render(); }, dir); }
+  if (act === "install" && installEvt) { installEvt.prompt(); installEvt.userChoice.finally(() => { installEvt = null; render(); }); }
+  if (act === "hideInstall") { try { localStorage.setItem("installHidden", "1"); } catch (e) { /* ignore */ } render(); }
+  if (act === "back") go(() => { openCourse = null; render(); }, "prev");
   if (act === "copyBm") {
     copyText(bookmarklet).then(() => toast("Import code copied. Now make the bookmark."), () => toast("Couldn't copy. Long-press the button on a laptop instead."));
   }
@@ -997,6 +1122,22 @@ document.addEventListener("change", e => {
     }).catch(() => toast("That file isn't a valid backup."));
   }
 });
+
+// Swipe left / right on the Today tab to change day.
+let touch = null;
+document.addEventListener("touchstart", e => {
+  if (tab !== "day" || !M || e.touches.length !== 1 || e.target.closest(".seg, .week, input, textarea, .sheet")) { touch = null; return; }
+  touch = { x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now() };
+}, { passive: true });
+document.addEventListener("touchend", e => {
+  if (!touch) return;
+  const dx = e.changedTouches[0].clientX - touch.x, dy = e.changedTouches[0].clientY - touch.y;
+  if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.6 && Date.now() - touch.t < 600) {
+    const dir = dx < 0 ? "next" : "prev";
+    go(() => { sel = addDays(sel, dir === "next" ? 1 : -1); render(); }, dir);
+  }
+  touch = null;
+}, { passive: true });
 
 // Roll over to the new day if the app stays open past midnight.
 let lastToday = todayIso();
