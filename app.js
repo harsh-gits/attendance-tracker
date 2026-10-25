@@ -302,7 +302,7 @@ function refreshLink() {
 }
 
 function restore(s) {
-  state = { data: s.data, edits: s.edits || {}, editTimes: s.editTimes || {}, calEdits: s.calEdits || {}, history: s.history || [], strict: !!s.strict, savedAt: s.savedAt || 0, remTime: s.remTime };
+  state = { data: s.data, edits: s.edits || {}, editTimes: s.editTimes || {}, calEdits: s.calEdits || {}, history: s.history || [], strict: !!s.strict, savedAt: s.savedAt || 0, remTime: s.remTime, theme: s.theme };
   M = build(state.data);
   save();
 }
@@ -753,6 +753,9 @@ function renderSettings() {
     </div>
     <p class="note">Google Calendar repeats every weekday until the last class day, so it doesn't skip holidays.</p>
 
+    <h2>Theme</h2>
+    <div class="themes">${THEMES.map(([id, name, sw]) => `<button class="theme${(state.theme || "ocean") === id ? " on" : ""}" data-theme="${id}"><i style="background:${sw}"></i>${name}</button>`).join("")}</div>
+
     <h2>Percentage rule</h2>
     <label class="switch"><input type="checkbox" id="strict" ${state.strict ? "checked" : ""}> Strict 75% (ignore the portal's rounding up)</label>
     <p class="note">The portal rounds up, so 74.2% shows as 75%. Turn this on to keep a safety margin. On duty counts as present, like on the portal.</p>
@@ -902,6 +905,20 @@ function applyDayChange() {
   toast(`${nice(sel)} is now ${kind === "hol" ? "a holiday" : kind === "work" ? "a working day" : "back to the portal's calendar"}.<br>Now: ${fmtx(before.exact)} → <b>${fmtx(after.exact)}</b> · Semester end: ${fmtx(before.end)} → <b>${fmtx(after.end)}</b>`);
 }
 
+// ---------- themes ----------
+const THEMES = [
+  ["aurora", "Aurora", "linear-gradient(135deg,#3b2fd6,#c026d3)"],
+  ["midnight", "Midnight", "linear-gradient(135deg,#0b1533,#2f56d9)"],
+  ["ocean", "Ocean", "linear-gradient(135deg,#1d4ed8,#06b6d4)"],
+  ["nebula", "Nebula", "linear-gradient(135deg,#4c1d95,#d946ef)"],
+  ["graphite", "Graphite", "linear-gradient(135deg,#1e293b,#64748b)"],
+  ["paper", "Paper", "linear-gradient(135deg,#111,#555)"],
+];
+function applyTheme() {
+  const t = (state.theme || "ocean") === "aurora" ? "" : state.theme || "ocean";
+  if (t) document.documentElement.dataset.theme = t; else delete document.documentElement.dataset.theme;
+}
+
 // ---------- motion ----------
 const calm = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
 // Smooth cross-fade between screens where the browser supports it.
@@ -1032,6 +1049,7 @@ document.addEventListener("click", e => {
     if (ups.length) change(ups);
     return;
   }
+  if (t.dataset.theme) { state.theme = t.dataset.theme; applyTheme(); save(); render(); return; }
   if (t.dataset.calundo) {
     const before = overall(todayIso());
     delete state.calEdits[t.dataset.calundo];
@@ -1152,13 +1170,14 @@ window.addEventListener("hashchange", () => {
 });
 
 async function start() {
+  applyTheme();
   if (state.data) M = build(state.data);
   if (!M) {
     // localStorage was cleared: fall back to the IndexedDB copy.
     try {
       const json = await idb("readonly", st => st.get(KEY));
       const s = json && JSON.parse(json);
-      if (validState(s) && s.data) { state = s; M = build(s.data); localStorage.setItem(KEY, json); }
+      if (validState(s) && s.data) { state = s; M = build(s.data); localStorage.setItem(KEY, json); applyTheme(); }
     } catch (e) { /* nothing saved */ }
   } else {
     idb("readwrite", st => st.put(JSON.stringify(state), KEY)).catch(() => {});
