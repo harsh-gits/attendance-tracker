@@ -1,7 +1,7 @@
 "use strict";
 
 const KEY = "attendance.v3";
-const APP_VERSION = "v16"; // keep in step with CACHE in sw.js
+const APP_VERSION = "v17"; // keep in step with CACHE in sw.js
 const WD = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const MONTH_FULL = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -347,13 +347,18 @@ const APP_URL = location.href.split("#")[0].split("?")[0].replace(/index\.html$/
 // Kept short (minified, light escaping) because phone browsers choke on very long bookmarks.
 const bookmarklet = "javascript:" + ("void (" + PORTAL_IMPORT.toString().replace("__APP__", APP_URL) + ")();")
   .replace(/%/g, "%25").replace(/#/g, "%23").replace(/\n/g, "%0A");
-// Phones: a tiny bookmark that runs the import code you copied from the app
-// (from the clipboard, or pasted into a box if clipboard access is refused).
-const MARK = "/*ATT-IMPORT*/";
-const importCode = MARK + "void (" + PORTAL_IMPORT.toString().replace("__APP__", APP_URL) + ")();";
-const tinyBookmark = "javascript:void((async()=>{let t='';try{t=await navigator.clipboard.readText()}catch(e){}" +
-  "if(!t.startsWith('" + MARK + "'))t=prompt('Paste the import code from the attendance app')||'';" +
-  "t.startsWith('" + MARK + "')?eval(t):alert('That is not the import code. Copy it in the attendance app first.')})())";
+// Phones cut bookmarks off at about 4,900 characters, so the phone bookmark carries
+// the import code compressed and unpacks it when tapped (about 3,900 characters).
+let phoneBookmark = bookmarklet;
+(async () => {
+  if (!window.CompressionStream) return;
+  const code = new TextEncoder().encode("void (" + PORTAL_IMPORT.toString().replace("__APP__", APP_URL) + ")();");
+  const z = new Uint8Array(await streamText(code, new CompressionStream("deflate-raw")).arrayBuffer());
+  let bin = "";
+  for (const b of z) bin += String.fromCharCode(b);
+  phoneBookmark = "javascript:void(new Response(new Blob([Uint8Array.from(atob('" + btoa(bin) +
+    "'),c=>c.charCodeAt(0))]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).text().then(eval))";
+})();
 const ZIP_URL = "https://github.com/harsh-gits/attendance-tracker/archive/refs/heads/main.zip";
 
 // ---------- rendering ----------
@@ -407,12 +412,11 @@ function importHtml(first) {
       </ol>
     </div>
     <div class="stepcard">
-      <b>On a phone</b>
-      <p class="note"><b>Once:</b> <button class="inline" data-act="copyTiny">Copy the bookmark</button> → bookmark any page, edit it, name it <b>Import attendance</b> and paste this as its address.</p>
+      <b>On a phone</b> <small>(one-time setup)</small>
       <ol class="steps">
-        <li><button class="inline" data-act="copyCode">Copy import code</button></li>
+        <li><button class="inline" data-act="copyBm">Copy the bookmark</button></li>
+        <li>Bookmark any page, then edit that bookmark: name it <b>Import attendance</b> and paste as its address (replace everything there).</li>
         <li>Log in to your student portal. <b>Android:</b> type <i>Import attendance</i> in the address bar and tap the ☆ bookmark. <b>iPhone:</b> open Bookmarks and tap it.</li>
-        <li>Allow clipboard access if asked (or paste the code into the box that appears).</li>
         <li>Tap <b>Open the app</b>. On the iPhone home-screen app, tap <b>Copy</b> instead and paste below.</li>
       </ol>
     </div>
@@ -1120,10 +1124,8 @@ document.addEventListener("click", e => {
   if (act === "hideInstall") { try { localStorage.setItem("installHidden", "1"); } catch (e) { /* ignore */ } render(); }
   if (act === "back") go(() => { openCourse = null; render(); }, "prev");
   if (act === "copyBm") {
-    copyText(bookmarklet).then(() => toast("Import code copied. Now make the bookmark."), () => toast("Couldn't copy. Long-press the button on a laptop instead."));
+    copyText(phoneBookmark).then(() => toast(`Bookmark copied (${phoneBookmark.length} characters). Paste it as the bookmark's address.`), () => toast("Couldn't copy."));
   }
-  if (act === "copyTiny") copyText(tinyBookmark).then(() => toast("Bookmark copied. Paste it as the bookmark's address."), () => toast("Couldn't copy."));
-  if (act === "copyCode") copyText(importCode).then(() => toast("Import code copied. Now open the portal and tap your bookmark."), () => toast("Couldn't copy."));
   if (act === "paste" || act === "pasteClip") {
     const got = act === "paste" ? Promise.resolve($("#paste").value) : navigator.clipboard.readText();
     got.then(takeIn).then(r => {
