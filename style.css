@@ -333,20 +333,44 @@ table.base { width: 100%; border-collapse: collapse; }
 #fx { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 60; }
 
 /* ---------- screen transitions ---------- */
-::view-transition-old(root), ::view-transition-new(root) { animation-duration: .28s; animation-timing-function: var(--ease); }
-[data-dir="next"]::view-transition-old(root) { animation-name: outLeft; }
-[data-dir="next"]::view-transition-new(root) { animation-name: inRight; }
-[data-dir="prev"]::view-transition-old(root) { animation-name: outRight; }
-[data-dir="prev"]::view-transition-new(root) { animation-name: inLeft; }
+/* Named parts animate on their own: the tab bar and header stay put, the week
+   strip and the day's classes move depending on how far you jumped. */
+.tabs { view-transition-name: tabbar; }
+.top { view-transition-name: hero; }
+#tab-day.active .week { view-transition-name: week; }
+#tab-day.active .daybody { view-transition-name: daybody; }
+#tab-day.active .wk.sel { view-transition-name: wksel; }
+::view-transition-group(*) { animation-duration: .32s; animation-timing-function: var(--ease); }
+::view-transition-old(*), ::view-transition-new(*) { animation-duration: .28s; animation-timing-function: var(--ease); }
+::view-transition-group(tabbar), ::view-transition-group(hero) { animation: none; }
+::view-transition-old(tabbar), ::view-transition-old(hero) { display: none; }
+::view-transition-new(tabbar), ::view-transition-new(hero) { animation: none; }
+
+/* Another week, another tab: the whole content slides. */
+[data-dir="next"]::view-transition-old(root), [data-dir="next"]::view-transition-old(week), [data-dir="next"]::view-transition-old(daybody) { animation-name: outLeft; }
+[data-dir="next"]::view-transition-new(root), [data-dir="next"]::view-transition-new(week), [data-dir="next"]::view-transition-new(daybody) { animation-name: inRight; }
+[data-dir="prev"]::view-transition-old(root), [data-dir="prev"]::view-transition-old(week), [data-dir="prev"]::view-transition-old(daybody) { animation-name: outRight; }
+[data-dir="prev"]::view-transition-new(root), [data-dir="prev"]::view-transition-new(week), [data-dir="prev"]::view-transition-new(daybody) { animation-name: inLeft; }
+[data-dir="next"]::view-transition-group(wksel), [data-dir="prev"]::view-transition-group(wksel) { animation: none; }
+[data-dir="next"]::view-transition-old(wksel), [data-dir="prev"]::view-transition-old(wksel) { display: none; }
+
+/* Same week: the strip holds still, the highlight glides, the classes nudge. */
+[data-dir^="d"]::view-transition-old(week), [data-dir^="d"]::view-transition-new(week) { animation: none; }
+[data-dir^="d"]::view-transition-old(week) { display: none; }
+[data-dir^="d"]::view-transition-group(wksel) { animation-duration: .38s; animation-timing-function: var(--spring); }
+[data-dir="dnext"]::view-transition-old(daybody) { animation-name: nudgeOutL; }
+[data-dir="dnext"]::view-transition-new(daybody) { animation-name: nudgeInR; }
+[data-dir="dprev"]::view-transition-old(daybody) { animation-name: nudgeOutR; }
+[data-dir="dprev"]::view-transition-new(daybody) { animation-name: nudgeInL; }
+
 @keyframes outLeft { to { opacity: 0; transform: translateX(-24px); } }
 @keyframes inRight { from { opacity: 0; transform: translateX(24px); } }
 @keyframes outRight { to { opacity: 0; transform: translateX(24px); } }
 @keyframes inLeft { from { opacity: 0; transform: translateX(-24px); } }
-.tabs { view-transition-name: tabbar; }
-.top { view-transition-name: hero; }
-::view-transition-group(tabbar), ::view-transition-group(hero) { animation: none; }
-::view-transition-old(tabbar), ::view-transition-old(hero) { display: none; }
-::view-transition-new(tabbar), ::view-transition-new(hero) { animation: none; }
+@keyframes nudgeOutL { to { opacity: 0; transform: translateX(-8px) scale(.99); } }
+@keyframes nudgeInR { from { opacity: 0; transform: translateX(8px) scale(.99); } }
+@keyframes nudgeOutR { to { opacity: 0; transform: translateX(8px) scale(.99); } }
+@keyframes nudgeInL { from { opacity: 0; transform: translateX(-8px) scale(.99); } }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }

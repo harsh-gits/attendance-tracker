@@ -433,7 +433,7 @@ function renderDay() {
   for (const c of M.courses) for (const k of c.classes) if (k.date === sel) sessions.push({ c, k });
   sessions.sort((a, b) => a.k.time.localeCompare(b.k.time));
 
-  let h = installHtml() + alertsHtml() + weekStrip() + `
+  let h = installHtml() + alertsHtml() + weekStrip() + `<div class="daybody">
     <div class="daynav">
       <div class="date"><b>${sel === today ? "Today · " : ""}${nice(sel)}</b><small>${esc(label)}</small></div>
       ${sel !== today ? `<button class="chip" data-act="today">Today</button>` : ""}
@@ -474,7 +474,7 @@ function renderDay() {
   if (info && info.own) h += `<div class="alert warn">You changed this day yourself (the portal had: ${esc(info.was ? info.was.type : "nothing")}). Undo it in Changes.</div>`;
   if (info && sel <= M.lastTheory) h += `<button class="link" data-act="dayEdit">Emergency change: holiday, half day, cancelled classes or extra working day…</button>`;
 
-  h += `<h2>Subjects</h2>${cardsHtml()}`;
+  h += `<h2>Subjects</h2>${cardsHtml()}</div>`;
   $("#tab-day").innerHTML = h;
   flashIds = [];
 }
@@ -921,6 +921,13 @@ function applyTheme() {
 
 // ---------- motion ----------
 const calm = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+const mondayOf = d => addDays(d, -((parse(d).getDay() + 6) % 7));
+// Moving to another day: glide inside the same week, slide when the week changes.
+function moveTo(d) {
+  if (d === sel) return;
+  const fwd = d > sel, same = mondayOf(d) === mondayOf(sel);
+  go(() => { sel = d; tab = "day"; render(); }, same ? (fwd ? "dnext" : "dprev") : (fwd ? "next" : "prev"));
+}
 // Smooth cross-fade between screens where the browser supports it.
 function go(fn, dir) {
   if (!document.startViewTransition || calm()) { fn(); return; }
@@ -1068,20 +1075,20 @@ document.addEventListener("click", e => {
     return;
   }
   if (t.dataset.date) {
-    const d = t.dataset.date, dir = d > sel ? "next" : d < sel ? "prev" : "";
-    const inStrip = !!t.closest(".week");
-    go(() => { sel = d; tab = "day"; render(); if (!inStrip) window.scrollTo(0, 0); }, dir);
+    const d = t.dataset.date;
+    if (t.closest(".week") && tab === "day") { moveTo(d); return; }
+    go(() => { sel = d; tab = "day"; render(); window.scrollTo(0, 0); }, d > sel ? "next" : d < sel ? "prev" : "fade");
     return;
   }
   const act = t.dataset.act;
   if (act === "dayEdit") openDaySheet();
   if (act === "sheetClose") $("#sheet").hidden = true;
   if (act === "dayApply" && !t.disabled) applyDayChange();
-  if (act === "prev") go(() => { sel = addDays(sel, -1); render(); }, "prev");
-  if (act === "next") go(() => { sel = addDays(sel, 1); render(); }, "next");
+  if (act === "prev") moveTo(addDays(sel, -1));
+  if (act === "next") moveTo(addDays(sel, 1));
   if (act === "prevWeek") go(() => { sel = addDays(sel, -7); render(); }, "prev");
   if (act === "nextWeek") go(() => { sel = addDays(sel, 7); render(); }, "next");
-  if (act === "today") { const d = todayIso(), dir = d > sel ? "next" : "prev"; go(() => { sel = d; render(); }, dir); }
+  if (act === "today") moveTo(todayIso());
   if (act === "install" && installEvt) { installEvt.prompt(); installEvt.userChoice.finally(() => { installEvt = null; render(); }); }
   if (act === "hideInstall") { try { localStorage.setItem("installHidden", "1"); } catch (e) { /* ignore */ } render(); }
   if (act === "back") go(() => { openCourse = null; render(); }, "prev");
@@ -1151,8 +1158,7 @@ document.addEventListener("touchend", e => {
   if (!touch) return;
   const dx = e.changedTouches[0].clientX - touch.x, dy = e.changedTouches[0].clientY - touch.y;
   if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.6 && Date.now() - touch.t < 600) {
-    const dir = dx < 0 ? "next" : "prev";
-    go(() => { sel = addDays(sel, dir === "next" ? 1 : -1); render(); }, dir);
+    moveTo(addDays(sel, dx < 0 ? 1 : -1));
   }
   touch = null;
 }, { passive: true });
