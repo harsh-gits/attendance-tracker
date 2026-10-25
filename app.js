@@ -1,6 +1,7 @@
 "use strict";
 
 const KEY = "attendance.v3";
+const APP_VERSION = "v16"; // keep in step with CACHE in sw.js
 const WD = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const MONTH_FULL = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -788,6 +789,8 @@ function renderSettings() {
       <button data-act="reset" class="danger">Remove everything</button>
     </div>
 
+    <p class="note">App version <b>${APP_VERSION}</b></p>
+
     <h2>Install</h2>
     <p class="note"><b>iPhone:</b> Safari → Share → Add to Home Screen.<br><b>Android / laptop:</b> Chrome → menu → Install app.<br><b>Offline copy for a computer:</b> <a href="${ZIP_URL}">download the zip</a>, unzip it and open <i>index.html</i>.</p>`;
 }
@@ -1223,5 +1226,17 @@ async function start() {
 start();
 
 if ("serviceWorker" in navigator && location.protocol !== "file:") {
-  navigator.serviceWorker.register("sw.js").catch(() => {});
+  // A new version takes over straight away: reload once and say so.
+  const hadController = !!navigator.serviceWorker.controller;
+  let reloading = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (!hadController || reloading) return;
+    reloading = true;
+    try { sessionStorage.setItem("justUpdated", "1"); } catch (e) { /* ignore */ }
+    location.reload();
+  });
+  navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).then(reg => {
+    document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") reg.update().catch(() => {}); });
+  }).catch(() => {});
+  try { if (sessionStorage.getItem("justUpdated")) { sessionStorage.removeItem("justUpdated"); setTimeout(() => toast(`Updated ✓ (${APP_VERSION})`), 400); } } catch (e) { /* ignore */ }
 }
