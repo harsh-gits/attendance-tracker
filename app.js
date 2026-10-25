@@ -343,7 +343,9 @@ async function handleHash() {
 }
 
 const APP_URL = location.href.split("#")[0].split("?")[0].replace(/index\.html$/, "");
-const bookmarklet = "javascript:" + encodeURIComponent("(" + PORTAL_IMPORT.toString().replace("__APP__", APP_URL) + ")();");
+// Kept short (minified, light escaping) because phone browsers choke on very long bookmarks.
+const bookmarklet = "javascript:" + ("void (" + PORTAL_IMPORT.toString().replace("__APP__", APP_URL) + ")();")
+  .replace(/%/g, "%25").replace(/#/g, "%23").replace(/\n/g, "%0A");
 const ZIP_URL = "https://github.com/harsh-gits/attendance-tracker/archive/refs/heads/main.zip";
 
 // ---------- rendering ----------
@@ -391,7 +393,7 @@ function importHtml(first) {
     <div class="stepcard">
       <b>On a laptop</b>
       <ol class="steps">
-        <li>Drag this button to your bookmarks bar: <a class="bm drag" href="${bookmarklet}" onclick="return false">⇩ Import attendance</a></li>
+        <li>Drag this button to your bookmarks bar: <a class="bm drag" href="${esc(bookmarklet)}" onclick="return false">⇩ Import attendance</a></li>
         <li>Log in to your student portal.</li>
         <li>Click <b>Import attendance</b> in your bookmarks bar, then <b>Open the app</b>.</li>
       </ol>

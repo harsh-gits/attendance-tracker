@@ -2,7 +2,9 @@
    attendance, every class so far and the academic calendar, then hands them to the app.
    Written without line comments or semicolon-free lines so it survives being
    pasted into a bookmark as a single line. The app turns this function into
-   the bookmark, so it works from the downloaded copy too. */
+   the bookmark, so it works from the downloaded copy too.
+   The app loads importer.min.js; after editing this file, regenerate it with:
+   npx terser importer.js -c passes=2 -m --comments false -o importer.min.js */
 var PORTAL_IMPORT = async function () {
   var APP = "__APP__";
   var MON = "JANFEBMARAPRMAYJUNJULAUGSEPOCTNOVDEC";
