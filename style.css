@@ -443,3 +443,13 @@ html[data-theme="paper"] .wk.sel, html[data-theme="paper"] .day.sel, html[data-t
 .ds-scale em { position: absolute; top: 6px; transform: translateX(-50%); font-style: normal; font-size: 9px; font-weight: 700; color: var(--muted); }
 .ds-scale em:first-of-type { transform: none; }
 .ds-scale em:last-of-type { transform: translateX(-100%); }
+/* The percentage is the hero of the day gauge */
+.daysum { gap: 2px 12px; padding: 12px 16px 26px; }
+.ds-ring { width: 40px; height: 40px; opacity: .85; }
+.ds-mid b {
+  font-size: 46px; line-height: 1; letter-spacing: -.04em; margin: 2px 0 3px;
+  background: linear-gradient(180deg, var(--text) 20%, var(--t) 130%); -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.ds-mid span { font-size: 11.5px; }
+.ds-chip { align-self: center; }
+.ds-scale { opacity: .6; height: 3px; }
