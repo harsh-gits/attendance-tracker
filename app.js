@@ -1,7 +1,7 @@
 "use strict";
 
 const KEY = "attendance.v3";
-const APP_VERSION = "v21"; // keep in step with CACHE in sw.js
+const APP_VERSION = "1.22.0"; // semver: new feature → minor, fix → patch; keep in step with CACHE in sw.js
 const WD = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const MONTH_FULL = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -377,6 +377,7 @@ function render() {
   if (tab === "cal") renderCal();
   if (tab === "log") renderLog();
   if (tab === "set") renderSettings();
+  motion();
 }
 
 function renderHeader() {
@@ -499,23 +500,25 @@ function renderDay() {
 function daySummary(day, today) {
   const o = overall(day), now = overall(today), future = day > today;
   if (o.exact === null) return "";
-  const diff = o.exact - (now.exact || 0), tone = !ok(o.A, o.T) ? "bad" : diff < -0.05 ? "warn" : "good";
+  // Compare the numbers as shown (one decimal), so the change always adds up on screen.
+  const shown = v => Math.floor((v || 0) * 10 + 1e-9) / 10;
+  const diff = Math.round((shown(o.exact) - shown(now.exact)) * 10) / 10, tone = !ok(o.A, o.T) ? "bad" : diff < -0.05 ? "warn" : "good";
   const pos = v => Math.max(0, Math.min(100, ((v - 50) / 50) * 100)).toFixed(1);
   const chip = future && Math.abs(diff) >= 0.05
     ? `<span class="ds-chip ${diff < 0 ? "down" : "up"}">${diff < 0 ? "▼" : "▲"} ${Math.abs(diff).toFixed(1)}<i>vs today</i></span>` : "";
   return `<div class="daysum ds-${tone}">
     <svg class="ds-ring" viewBox="0 0 44 44" aria-hidden="true"><circle class="bg" cx="22" cy="22" r="18"/>
-      <circle class="fg" cx="22" cy="22" r="18" pathLength="100" style="stroke-dashoffset:${(100 - o.exact).toFixed(1)}"/></svg>
+      <circle class="fg" data-glide="dayring" data-prop="strokeDashoffset" data-to="${(100 - o.exact).toFixed(1)}" cx="22" cy="22" r="18" pathLength="100" style="stroke-dashoffset:${(100 - o.exact).toFixed(1)}"/></svg>
     <div class="ds-mid">
       <small>${future ? "Projected by this day" : day === today ? "Overall today" : "Overall up to this day"}</small>
-      <b>${fmtx(o.exact)}</b>
+      <b data-roll="day" data-v="${o.exact}">${fmtx(o.exact)}</b>
       <span>${future ? "attending all but your planned absences" : `${o.A}/${o.T} classes attended`}</span>
     </div>
     ${chip}
     <div class="ds-scale" aria-hidden="true">
       <i class="min" style="left:${pos(MIN)}%"></i>
       ${future ? `<i class="now" style="left:${pos(now.exact)}%"></i>` : ""}
-      <i class="here" style="left:${pos(o.exact)}%"></i>
+      <i class="here" data-glide="daydot" data-prop="left" data-to="${pos(o.exact)}%" style="left:${pos(o.exact)}%"></i>
       <em style="left:0">50</em><em style="left:${pos(MIN)}%">75</em><em style="left:100%">100</em>
     </div>
   </div>`;
@@ -625,7 +628,7 @@ function cardsHtml() {
       <button class="card tone-${v.tone}${flashIds.includes(c.key) ? " flash" : ""}" data-course="${esc(c.key)}">
         <div class="row">
           <div><b>${esc(c.name)}</b><small>${esc(c.code)} · ${esc(c.slot)} · ${s.A}/${s.T} · exact ${fmtx(s.exact)}</small></div>
-          <div class="pct">${fmt(s.pct)}</div>
+          <div class="pct" data-roll="pct-${esc(c.key)}" data-v="${s.exact}">${fmt(s.pct)}</div>
         </div>
         ${spark(c)}
         <div class="verdict">${v.text}</div>
@@ -646,7 +649,7 @@ function renderSubjects() {
     <div class="card tone-${v.tone} static">
       <div class="row">
         <div><b>${esc(c.name)}</b><small>${esc(c.code)} · ${esc(c.type || "")} · ${esc(c.slot)}</small></div>
-        <div class="pct">${fmt(s.pct)}</div>
+        <div class="pct" data-roll="pct-${esc(c.key)}" data-v="${s.exact}">${fmt(s.pct)}</div>
       </div>
       <div class="verdict">${v.text}</div>
       <small>${s.A}/${s.T} attended · exact ${fmtx(s.exact)} · portal showed ${c.portal[0]}/${c.portal[1]} at import · ${v.sub}</small>
@@ -816,7 +819,7 @@ function renderSettings() {
       <button data-act="reset" class="danger">Remove everything</button>
     </div>
 
-    <p class="note">App version <b>${APP_VERSION}</b></p>
+    <p class="note">App version <b>v${APP_VERSION}</b></p>
 
     <h2>Install</h2>
     <p class="note"><b>iPhone:</b> Safari → Share → Add to Home Screen.<br><b>Android / laptop:</b> Chrome → menu → Install app.<br><b>Offline copy for a computer:</b> <a href="${ZIP_URL}">download the zip</a>, unzip it and open <i>index.html</i>.</p>`;
@@ -999,6 +1002,30 @@ function countTo(el, target) {
   };
   countRaf = requestAnimationFrame(tick);
 }
+// Numbers roll up or down to their new value, and gauges glide, instead of jumping.
+const lastRoll = {}, lastGlide = {};
+function motion() {
+  document.querySelectorAll("[data-roll]").forEach(el => {
+    const key = el.dataset.roll, v = parseFloat(el.dataset.v), text = el.textContent, prev = lastRoll[key];
+    lastRoll[key] = { v, text };
+    if (!prev || isNaN(v) || isNaN(prev.v) || prev.text === text || calm()) return;
+    const up = v > prev.v;
+    el.innerHTML = `<span class="roll ${up ? "up" : "down"}"><span class="o">${prev.text}</span><span class="n">${text}</span></span>`;
+    el.classList.add(up ? "went-up" : "went-down");
+    setTimeout(() => { el.textContent = text; el.classList.remove("went-up", "went-down"); }, 900);
+  });
+  document.querySelectorAll("[data-glide]").forEach(el => {
+    const key = el.dataset.glide, prop = el.dataset.prop, to = el.dataset.to, from = lastGlide[key];
+    lastGlide[key] = to;
+    if (from === undefined || from === to || calm()) return;
+    el.style.transition = "none";
+    el.style[prop] = from;
+    el.getBoundingClientRect();
+    el.style.transition = "";
+    requestAnimationFrame(() => (el.style[prop] = to));
+  });
+}
+
 const buzz = ms => { try { navigator.vibrate && navigator.vibrate(ms); } catch (e) { /* ignore */ } };
 // Small confetti burst when a subject climbs back to the limit.
 function confetti() {
@@ -1261,5 +1288,5 @@ if ("serviceWorker" in navigator && location.protocol !== "file:") {
   navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).then(reg => {
     document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") reg.update().catch(() => {}); });
   }).catch(() => {});
-  try { if (sessionStorage.getItem("justUpdated")) { sessionStorage.removeItem("justUpdated"); setTimeout(() => toast(`Updated ✓ (${APP_VERSION})`), 400); } } catch (e) { /* ignore */ }
+  try { if (sessionStorage.getItem("justUpdated")) { sessionStorage.removeItem("justUpdated"); setTimeout(() => toast(`Updated ✓ (v${APP_VERSION})`), 400); } } catch (e) { /* ignore */ }
 }

@@ -453,3 +453,19 @@ html[data-theme="paper"] .wk.sel, html[data-theme="paper"] .day.sel, html[data-t
 .ds-mid span { font-size: 11.5px; }
 .ds-chip { align-self: center; }
 .ds-scale { opacity: .6; height: 3px; }
+
+/* Rolling numbers */
+[data-roll] { display: inline-block; }
+.roll { position: relative; display: inline-grid; overflow: hidden; vertical-align: bottom; }
+.roll > span { grid-area: 1 / 1; animation-duration: .55s; animation-timing-function: var(--spring); animation-fill-mode: both; }
+.roll.up .o { animation-name: rollOutUp; }
+.roll.up .n { animation-name: rollInUp; }
+.roll.down .o { animation-name: rollOutDown; }
+.roll.down .n { animation-name: rollInDown; }
+@keyframes rollOutUp { to { transform: translateY(-100%); opacity: 0; } }
+@keyframes rollInUp { from { transform: translateY(100%); opacity: 0; } }
+@keyframes rollOutDown { to { transform: translateY(100%); opacity: 0; } }
+@keyframes rollInDown { from { transform: translateY(-100%); opacity: 0; } }
+.went-up, .went-up .roll > span { color: var(--good) !important; -webkit-text-fill-color: var(--good); transition: color .9s; }
+.went-down, .went-down .roll > span { color: var(--bad) !important; -webkit-text-fill-color: var(--bad); transition: color .9s; }
+.ds-scale i.here { transition: left .7s var(--spring); }
