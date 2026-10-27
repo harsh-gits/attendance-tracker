@@ -455,18 +455,27 @@ html[data-theme="paper"] .wk.sel, html[data-theme="paper"] .day.sel, html[data-t
 .went-up, .went-up .roll > span { color: var(--good) !important; -webkit-text-fill-color: var(--good); transition: color .9s; }
 .went-down, .went-down .roll > span { color: var(--bad) !important; -webkit-text-fill-color: var(--bad); transition: color .9s; }
 
-/* Mini trend in the day gauge (replaces the 50–100 scale) */
-.daysum { padding-bottom: 12px; }
-.ds-trend { grid-column: 1 / -1; position: relative; margin-top: 8px; }
-.ds-trend svg { display: block; width: 100%; height: 46px; overflow: visible; }
-.ds-trend .tl { fill: none; stroke: var(--t); stroke-width: 2.4; vector-effect: non-scaling-stroke; stroke-linecap: round; stroke-linejoin: round; }
-.ds-trend .tl.proj { stroke-dasharray: 4 5; opacity: .75; }
-
-
-.ds-trend em { position: absolute; bottom: -14px; font-style: normal; font-size: 10px; font-weight: 700; color: var(--muted); }
-.ds-trend em:first-of-type { left: 0; }
-.ds-trend em:last-of-type { right: 0; }
-.daysum:has(.ds-trend) { padding-bottom: 22px; }
-.ds-trend i { position: absolute; transform: translate(-50%, -50%); border-radius: 50%; }
-.ds-trend .tnow { width: 9px; height: 9px; background: var(--panel-2); border: 2px solid var(--muted); }
-.ds-trend .tsel { width: 12px; height: 12px; background: var(--text); box-shadow: 0 0 0 3px var(--t), 0 0 12px var(--t); transition: top .6s var(--spring); }
+/* Day gauge: exact change chip + zoomed scale */
+.daysum { grid-template-columns: auto 1fr auto; padding-bottom: 14px; }
+.ds-chip { align-self: center; display: flex; flex-direction: column; align-items: center; padding: 6px 10px; border-radius: 14px; font-weight: 800; font-size: 14px; font-variant-numeric: tabular-nums; }
+.ds-chip i { font-style: normal; font-size: 9.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; opacity: .8; }
+.ds-chip.down { background: color-mix(in srgb, var(--bad) 16%, transparent); color: var(--bad); }
+.ds-chip.up { background: color-mix(in srgb, var(--good) 16%, transparent); color: var(--good); }
+.zscale { grid-column: 1 / -1; margin-top: 12px; }
+.ztrack { position: relative; height: 6px; border-radius: 3px; background: color-mix(in srgb, var(--text) 10%, transparent); }
+.zgap { position: absolute; top: 0; bottom: 0; border-radius: 3px; transition: left .6s var(--spring), width .6s var(--spring); overflow: hidden; }
+.zgap.down { background: linear-gradient(270deg, var(--bad), color-mix(in srgb, var(--bad) 30%, transparent)); }
+.zgap.up { background: linear-gradient(90deg, color-mix(in srgb, var(--good) 30%, transparent), var(--good)); }
+.zgap::after { content: ""; position: absolute; inset: 0; background: repeating-linear-gradient(90deg, transparent 0 8px, rgba(255, 255, 255, .35) 8px 10px); animation: zflow 1s linear infinite; }
+.zgap.down::after { animation-direction: reverse; }
+@keyframes zflow { to { background-position: 18px 0; } }
+.zmin { position: absolute; top: -5px; width: 2px; height: 16px; border-radius: 1px; background: var(--text); opacity: .75; transform: translateX(-50%); }
+.zmin em { position: absolute; top: -15px; left: 50%; transform: translateX(-50%); font-style: normal; font-size: 9.5px; font-weight: 800; color: var(--muted); white-space: nowrap; }
+.ztrack i { position: absolute; top: 50%; transform: translate(-50%, -50%); border-radius: 50%; transition: left .6s var(--spring); }
+.znow { width: 11px; height: 11px; background: var(--panel-2); border: 2px solid var(--muted); }
+.zhere { width: 14px; height: 14px; background: var(--text); box-shadow: 0 0 0 3px var(--t), 0 0 12px var(--t); }
+.zlabels { display: flex; justify-content: space-between; align-items: center; margin-top: 7px; font-size: 10px; font-weight: 700; color: var(--muted); }
+.zlabels em { font-style: normal; }
+.zcush { font-size: 10.5px; color: var(--good); }
+.zcush.warn { color: var(--warn); }
+.zcush.bad { color: var(--bad); }

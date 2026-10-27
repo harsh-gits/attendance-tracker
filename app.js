@@ -1,7 +1,7 @@
 "use strict";
 
 const KEY = "attendance.v3";
-const APP_VERSION = "1.23.0"; // semver: new feature → minor, fix → patch; keep in step with CACHE in sw.js
+const APP_VERSION = "1.24.0"; // semver: new feature → minor, fix → patch; keep in step with CACHE in sw.js
 const WD = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const MONTH_FULL = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -495,15 +495,16 @@ function renderDay() {
   flashIds = [];
 }
 
-// Overall % as it stands at the end of the selected day (projected for future days),
-// drawn as a gauge: mini ring, big %, and a trend of recent class days. The colour
-// says whether this day ends below 75% (red), lower than today (amber) or fine (green).
+// Overall % as it stands at the end of the selected day (projected for future days):
+// mini ring, big %, exact change vs today, and a scale zoomed around today and that day.
+const shown = v => Math.floor((v || 0) * 10 + 1e-9) / 10; // as displayed (one decimal)
 function daySummary(day, today) {
   const o = overall(day), now = overall(today), future = day > today;
   if (o.exact === null) return "";
-  // Compare the numbers as shown (one decimal), so the change always adds up on screen.
-  const shown = v => Math.floor((v || 0) * 10 + 1e-9) / 10;
-  const diff = Math.round((shown(o.exact) - shown(now.exact)) * 10) / 10, tone = !ok(o.A, o.T) ? "bad" : diff < -0.05 ? "warn" : "good";
+  const a = shown(now.exact), b = shown(o.exact), diff = Math.round((b - a) * 10) / 10;
+  const tone = !ok(o.A, o.T) ? "bad" : diff < 0 ? "warn" : "good";
+  const chip = future && diff !== 0
+    ? `<span class="ds-chip ${diff < 0 ? "down" : "up"}">${diff < 0 ? "▼" : "▲"} ${Math.abs(diff).toFixed(1)}<i>vs today</i></span>` : "";
   return `<div class="daysum ds-${tone}">
     <svg class="ds-ring" viewBox="0 0 44 44" aria-hidden="true"><circle class="bg" cx="22" cy="22" r="18"/>
       <circle class="fg" data-glide="dayring" data-prop="strokeDashoffset" data-to="${(100 - o.exact).toFixed(1)}" cx="22" cy="22" r="18" pathLength="100" style="stroke-dashoffset:${(100 - o.exact).toFixed(1)}"/></svg>
@@ -512,34 +513,35 @@ function daySummary(day, today) {
       <b data-roll="day" data-v="${o.exact}">${fmtx(o.exact)}</b>
       <span>${future ? "attending all but your planned absences" : `${o.A}/${o.T} classes attended`}</span>
     </div>
-    ${dayTrend(day, today)}
+    ${chip}
+    ${zoomScale(future ? a : null, b)}
   </div>`;
 }
 
-// Overall % on the last few class days up to the selected day, zoomed in so small
-// changes show. Solid up to today, dashed for projected days.
-function dayTrend(day, today) {
-  const days = M.dates.filter(d => d <= day && M.isClassDay(d)).slice(-8);
-  if (days.length < 2) return "";
-  const pts = days.map(d => ({ d, v: overall(d).exact })).filter(p => p.v !== null);
-  if (pts.length < 2) return "";
-  const vs = pts.map(p => p.v), lo = Math.min(...vs), hi = Math.max(...vs), pad = Math.max(0.4, (hi - lo) * 0.25);
-  const W = 300, H = 46, y = v => (H - 6 - ((v - (lo - pad)) / (hi - lo + 2 * pad)) * (H - 12)).toFixed(1);
-  const x = i => (6 + (i / (pts.length - 1)) * (W - 12)).toFixed(1);
-  const cut = pts.findIndex(p => p.d > today);
-  const past = cut === -1 ? pts : pts.slice(0, Math.max(cut, 1));
-  const path = list => list.map(p => `${pts.indexOf(p) ? "L" : "M"}${x(pts.indexOf(p))} ${y(p.v)}`).join("").replace(/^L/, "M");
-  const future = cut > 0 ? pts.slice(cut - 1) : cut === 0 ? pts : [];
-  const ti = pts.findIndex(p => p.d === today), si = pts.length - 1;
-  const short = d => { const z = parse(d); return `${z.getDate()} ${MON[z.getMonth()]}`; };
-  return `<div class="ds-trend" aria-hidden="true">
-    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
-      ${past.length > 1 ? `<path class="tl" d="${path(past)}"/>` : ""}
-      ${future.length > 1 ? `<path class="tl proj" d="${path(future)}"/>` : ""}
-    </svg>
-    ${ti >= 0 && ti !== si ? `<i class="tnow" style="left:${(x(ti) / W * 100).toFixed(2)}%;top:${y(pts[ti].v)}px"></i>` : ""}
-    <i class="tsel" data-glide="trenddot" data-prop="top" data-to="${y(pts[si].v)}px" style="left:${(x(si) / W * 100).toFixed(2)}%;top:${y(pts[si].v)}px"></i>
-    <em>${short(pts[0].d)}</em><em>${day === today ? "today" : short(day)}</em>
+// A scale zoomed to the values that matter, so a 0.3% move is visible.
+// The gap between today and the selected day is a coloured band with an arrow.
+function zoomScale(from, to) {
+  const vals = from === null ? [to] : [from, to];
+  const span = Math.max(...vals) - Math.min(...vals);
+  const pad = Math.max(1, span * 0.6);
+  let lo = Math.max(0, Math.floor(Math.min(...vals) - pad)), hi = Math.min(100, Math.ceil(Math.max(...vals) + pad));
+  if (MIN >= lo - 2 && MIN < lo) lo = MIN - 1; // pull 75% into view when it's just outside
+  const at = v => (((v - lo) / (hi - lo)) * 100).toFixed(2);
+  const minIn = MIN >= lo && MIN <= hi, cushion = Math.round((to - MIN) * 10) / 10;
+  const gap = from === null || from === to ? "" : (() => {
+    const l = Math.min(from, to), r = Math.max(from, to), down = to < from;
+    return `<span class="zgap ${down ? "down" : "up"}" data-glide="zgapL" data-prop="left" data-to="${at(l)}%" style="left:${at(l)}%;width:${(at(r) - at(l)).toFixed(2)}%"></span>`;
+  })();
+  return `<div class="zscale" aria-hidden="true">
+    <div class="ztrack">
+      ${gap}
+      ${minIn ? `<span class="zmin" style="left:${at(MIN)}%"><em>${MIN}%</em></span>` : ""}
+      ${from !== null && from !== to ? `<i class="znow" style="left:${at(from)}%"></i>` : ""}
+      <i class="zhere" data-glide="zhere" data-prop="left" data-to="${at(to)}%" style="left:${at(to)}%"></i>
+    </div>
+    <div class="zlabels"><em>${lo}%</em>
+      <span class="zcush ${cushion < 0 ? "bad" : cushion < 2 ? "warn" : ""}">${cushion === 0 ? `right at the ${MIN}% limit` : cushion > 0 ? `${minIn ? "" : "◂ "}${cushion.toFixed(1)} above the ${MIN}% limit` : `${Math.abs(cushion).toFixed(1)} below the ${MIN}% limit${minIn ? "" : " ▸"}`}</span>
+      <em>${hi}%</em></div>
   </div>`;
 }
 
