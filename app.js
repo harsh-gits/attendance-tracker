@@ -496,15 +496,14 @@ function renderDay() {
 }
 
 // Overall % as it stands at the end of the selected day (projected for future days),
-// drawn as a gauge: mini ring, change vs today, and a 50–100% scale with the 75% line.
+// drawn as a gauge: mini ring, big %, and a trend of recent class days. The colour
+// says whether this day ends below 75% (red), lower than today (amber) or fine (green).
 function daySummary(day, today) {
   const o = overall(day), now = overall(today), future = day > today;
   if (o.exact === null) return "";
   // Compare the numbers as shown (one decimal), so the change always adds up on screen.
   const shown = v => Math.floor((v || 0) * 10 + 1e-9) / 10;
   const diff = Math.round((shown(o.exact) - shown(now.exact)) * 10) / 10, tone = !ok(o.A, o.T) ? "bad" : diff < -0.05 ? "warn" : "good";
-  const chip = future && Math.abs(diff) >= 0.05
-    ? `<span class="ds-chip ${diff < 0 ? "down" : "up"}">${diff < 0 ? "▼" : "▲"} ${Math.abs(diff).toFixed(1)}<i>vs today</i></span>` : "";
   return `<div class="daysum ds-${tone}">
     <svg class="ds-ring" viewBox="0 0 44 44" aria-hidden="true"><circle class="bg" cx="22" cy="22" r="18"/>
       <circle class="fg" data-glide="dayring" data-prop="strokeDashoffset" data-to="${(100 - o.exact).toFixed(1)}" cx="22" cy="22" r="18" pathLength="100" style="stroke-dashoffset:${(100 - o.exact).toFixed(1)}"/></svg>
@@ -513,7 +512,6 @@ function daySummary(day, today) {
       <b data-roll="day" data-v="${o.exact}">${fmtx(o.exact)}</b>
       <span>${future ? "attending all but your planned absences" : `${o.A}/${o.T} classes attended`}</span>
     </div>
-    ${chip}
     ${dayTrend(day, today)}
   </div>`;
 }
