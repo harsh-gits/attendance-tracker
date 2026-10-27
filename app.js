@@ -1,7 +1,7 @@
 "use strict";
 
 const KEY = "attendance.v3";
-const APP_VERSION = "v18"; // keep in step with CACHE in sw.js
+const APP_VERSION = "v19"; // keep in step with CACHE in sw.js
 const WD = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const MONTH_FULL = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -456,7 +456,7 @@ function renderDay() {
     <div class="daynav">
       <div class="date"><b>${sel === today ? "Today · " : ""}${nice(sel)}</b><small>${esc(label)}</small></div>
       ${sel !== today ? `<button class="chip" data-act="today">Today</button>` : ""}
-    </div>`;
+    </div>` + daySummary(sel, today);
 
   if (sessions.length) {
     h += `<div class="sessions">`;
@@ -483,10 +483,6 @@ function renderDay() {
         <button data-all="A">All absent</button>
         <button data-all="">Clear my marks</button>
       </div>`;
-    const o = overall(sel);
-    h += sel <= today
-      ? `<p class="note">Overall up to this day: <b>${fmtx(o.exact)}</b> (${o.A}/${o.T})</p>`
-      : `<p class="note">Projected by this day: <b>${fmtx(o.exact)}</b>, if you attend everything except your planned absences.</p>`;
   } else {
     h += `<p class="empty">${info && /holiday/i.test(info.type) ? "🎉 " : ""}No classes</p>`;
   }
@@ -496,6 +492,18 @@ function renderDay() {
   h += `<h2>Subjects</h2>${cardsHtml()}</div>`;
   $("#tab-day").innerHTML = h;
   flashIds = [];
+}
+
+// Overall % as it stands at the end of the selected day (projected for future days).
+function daySummary(day, today) {
+  const o = overall(day), now = overall(today), future = day > today;
+  if (o.exact === null) return "";
+  const diff = o.exact - now.exact, tone = !ok(o.A, o.T) ? "bad" : diff < -0.05 ? "warn" : "good";
+  const delta = future && Math.abs(diff) >= 0.05 ? `<span class="ds-d">${diff > 0 ? "+" : "−"}${Math.abs(diff).toFixed(1)} vs today</span>` : "";
+  return `<div class="daysum ds-${tone}">
+    <div class="ds-l"><small>${future ? "Projected by this day" : day === today ? "Overall today" : "Overall up to this day"}</small>
+      <span>${future ? "If you attend everything except your planned absences" : `${o.A}/${o.T} classes attended`}</span></div>
+    <div class="ds-r"><b>${fmtx(o.exact)}</b>${delta}</div></div>`;
 }
 
 // Seven-day strip (Mon–Sun) around the selected day, with arrows to move a week.
