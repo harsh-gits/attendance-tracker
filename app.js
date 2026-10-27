@@ -1,7 +1,7 @@
 "use strict";
 
 const KEY = "attendance.v3";
-const APP_VERSION = "v19"; // keep in step with CACHE in sw.js
+const APP_VERSION = "v20"; // keep in step with CACHE in sw.js
 const WD = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const MONTH_FULL = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -494,16 +494,31 @@ function renderDay() {
   flashIds = [];
 }
 
-// Overall % as it stands at the end of the selected day (projected for future days).
+// Overall % as it stands at the end of the selected day (projected for future days),
+// drawn as a gauge: mini ring, change vs today, and a 50–100% scale with the 75% line.
 function daySummary(day, today) {
   const o = overall(day), now = overall(today), future = day > today;
   if (o.exact === null) return "";
-  const diff = o.exact - now.exact, tone = !ok(o.A, o.T) ? "bad" : diff < -0.05 ? "warn" : "good";
-  const delta = future && Math.abs(diff) >= 0.05 ? `<span class="ds-d">${diff > 0 ? "+" : "−"}${Math.abs(diff).toFixed(1)} vs today</span>` : "";
+  const diff = o.exact - (now.exact || 0), tone = !ok(o.A, o.T) ? "bad" : diff < -0.05 ? "warn" : "good";
+  const pos = v => Math.max(0, Math.min(100, ((v - 50) / 50) * 100)).toFixed(1);
+  const chip = future && Math.abs(diff) >= 0.05
+    ? `<span class="ds-chip ${diff < 0 ? "down" : "up"}">${diff < 0 ? "▼" : "▲"} ${Math.abs(diff).toFixed(1)}<i>vs today</i></span>` : "";
   return `<div class="daysum ds-${tone}">
-    <div class="ds-l"><small>${future ? "Projected by this day" : day === today ? "Overall today" : "Overall up to this day"}</small>
-      <span>${future ? "If you attend everything except your planned absences" : `${o.A}/${o.T} classes attended`}</span></div>
-    <div class="ds-r"><b>${fmtx(o.exact)}</b>${delta}</div></div>`;
+    <svg class="ds-ring" viewBox="0 0 44 44" aria-hidden="true"><circle class="bg" cx="22" cy="22" r="18"/>
+      <circle class="fg" cx="22" cy="22" r="18" pathLength="100" style="stroke-dashoffset:${(100 - o.exact).toFixed(1)}"/></svg>
+    <div class="ds-mid">
+      <small>${future ? "Projected by this day" : day === today ? "Overall today" : "Overall up to this day"}</small>
+      <b>${fmtx(o.exact)}</b>
+      <span>${future ? "attending all but your planned absences" : `${o.A}/${o.T} classes attended`}</span>
+    </div>
+    ${chip}
+    <div class="ds-scale" aria-hidden="true">
+      <i class="min" style="left:${pos(MIN)}%"></i>
+      ${future ? `<i class="now" style="left:${pos(now.exact)}%"></i>` : ""}
+      <i class="here" style="left:${pos(o.exact)}%"></i>
+      <em style="left:0">50</em><em style="left:${pos(MIN)}%">75</em><em style="left:100%">100</em>
+    </div>
+  </div>`;
 }
 
 // Seven-day strip (Mon–Sun) around the selected day, with arrows to move a week.
