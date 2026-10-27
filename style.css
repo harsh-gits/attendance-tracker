@@ -434,15 +434,7 @@ html[data-theme="paper"] .wk.sel, html[data-theme="paper"] .day.sel, html[data-t
 .ds-chip i { font-style: normal; font-size: 9.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; opacity: .8; }
 .ds-chip.down { background: color-mix(in srgb, var(--bad) 16%, transparent); color: var(--bad); }
 .ds-chip.up { background: color-mix(in srgb, var(--good) 16%, transparent); color: var(--good); }
-.ds-scale { position: absolute; left: 16px; right: 16px; bottom: 14px; height: 4px; border-radius: 2px;
   background: linear-gradient(90deg, var(--bad) 0 50%, var(--warn) 50% 60%, var(--good) 60% 100%); opacity: .9; }
-.ds-scale i { position: absolute; top: 50%; transform: translate(-50%, -50%); border-radius: 50%; }
-.ds-scale i.here { width: 12px; height: 12px; background: var(--text); box-shadow: 0 0 0 3px var(--panel-2), 0 0 10px var(--t); transition: left .6s var(--spring); }
-.ds-scale i.now { width: 10px; height: 10px; background: var(--panel-2); border: 2px solid var(--muted); }
-.ds-scale i.min { width: 2px; height: 12px; border-radius: 1px; background: var(--text); opacity: .7; }
-.ds-scale em { position: absolute; top: 6px; transform: translateX(-50%); font-style: normal; font-size: 9px; font-weight: 700; color: var(--muted); }
-.ds-scale em:first-of-type { transform: none; }
-.ds-scale em:last-of-type { transform: translateX(-100%); }
 /* The percentage is the hero of the day gauge */
 .daysum { gap: 2px 12px; padding: 12px 16px 26px; }
 .ds-ring { width: 40px; height: 40px; opacity: .85; }
@@ -452,7 +444,6 @@ html[data-theme="paper"] .wk.sel, html[data-theme="paper"] .day.sel, html[data-t
 }
 .ds-mid span { font-size: 11.5px; }
 .ds-chip { align-self: center; }
-.ds-scale { opacity: .6; height: 3px; }
 
 /* Rolling numbers */
 [data-roll] { display: inline-block; }
@@ -468,4 +459,19 @@ html[data-theme="paper"] .wk.sel, html[data-theme="paper"] .day.sel, html[data-t
 @keyframes rollInDown { from { transform: translateY(-100%); opacity: 0; } }
 .went-up, .went-up .roll > span { color: var(--good) !important; -webkit-text-fill-color: var(--good); transition: color .9s; }
 .went-down, .went-down .roll > span { color: var(--bad) !important; -webkit-text-fill-color: var(--bad); transition: color .9s; }
-.ds-scale i.here { transition: left .7s var(--spring); }
+
+/* Mini trend in the day gauge (replaces the 50–100 scale) */
+.daysum { padding-bottom: 12px; }
+.ds-trend { grid-column: 1 / -1; position: relative; margin-top: 8px; }
+.ds-trend svg { display: block; width: 100%; height: 46px; overflow: visible; }
+.ds-trend .tl { fill: none; stroke: var(--t); stroke-width: 2.4; vector-effect: non-scaling-stroke; stroke-linecap: round; stroke-linejoin: round; }
+.ds-trend .tl.proj { stroke-dasharray: 4 5; opacity: .75; }
+
+
+.ds-trend em { position: absolute; bottom: -14px; font-style: normal; font-size: 10px; font-weight: 700; color: var(--muted); }
+.ds-trend em:first-of-type { left: 0; }
+.ds-trend em:last-of-type { right: 0; }
+.daysum:has(.ds-trend) { padding-bottom: 22px; }
+.ds-trend i { position: absolute; transform: translate(-50%, -50%); border-radius: 50%; }
+.ds-trend .tnow { width: 9px; height: 9px; background: var(--panel-2); border: 2px solid var(--muted); }
+.ds-trend .tsel { width: 12px; height: 12px; background: var(--text); box-shadow: 0 0 0 3px var(--t), 0 0 12px var(--t); transition: top .6s var(--spring); }

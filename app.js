@@ -1,7 +1,7 @@
 "use strict";
 
 const KEY = "attendance.v3";
-const APP_VERSION = "1.22.0"; // semver: new feature → minor, fix → patch; keep in step with CACHE in sw.js
+const APP_VERSION = "1.23.0"; // semver: new feature → minor, fix → patch; keep in step with CACHE in sw.js
 const WD = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const MONTH_FULL = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -503,7 +503,6 @@ function daySummary(day, today) {
   // Compare the numbers as shown (one decimal), so the change always adds up on screen.
   const shown = v => Math.floor((v || 0) * 10 + 1e-9) / 10;
   const diff = Math.round((shown(o.exact) - shown(now.exact)) * 10) / 10, tone = !ok(o.A, o.T) ? "bad" : diff < -0.05 ? "warn" : "good";
-  const pos = v => Math.max(0, Math.min(100, ((v - 50) / 50) * 100)).toFixed(1);
   const chip = future && Math.abs(diff) >= 0.05
     ? `<span class="ds-chip ${diff < 0 ? "down" : "up"}">${diff < 0 ? "▼" : "▲"} ${Math.abs(diff).toFixed(1)}<i>vs today</i></span>` : "";
   return `<div class="daysum ds-${tone}">
@@ -515,12 +514,34 @@ function daySummary(day, today) {
       <span>${future ? "attending all but your planned absences" : `${o.A}/${o.T} classes attended`}</span>
     </div>
     ${chip}
-    <div class="ds-scale" aria-hidden="true">
-      <i class="min" style="left:${pos(MIN)}%"></i>
-      ${future ? `<i class="now" style="left:${pos(now.exact)}%"></i>` : ""}
-      <i class="here" data-glide="daydot" data-prop="left" data-to="${pos(o.exact)}%" style="left:${pos(o.exact)}%"></i>
-      <em style="left:0">50</em><em style="left:${pos(MIN)}%">75</em><em style="left:100%">100</em>
-    </div>
+    ${dayTrend(day, today)}
+  </div>`;
+}
+
+// Overall % on the last few class days up to the selected day, zoomed in so small
+// changes show. Solid up to today, dashed for projected days.
+function dayTrend(day, today) {
+  const days = M.dates.filter(d => d <= day && M.isClassDay(d)).slice(-8);
+  if (days.length < 2) return "";
+  const pts = days.map(d => ({ d, v: overall(d).exact })).filter(p => p.v !== null);
+  if (pts.length < 2) return "";
+  const vs = pts.map(p => p.v), lo = Math.min(...vs), hi = Math.max(...vs), pad = Math.max(0.4, (hi - lo) * 0.25);
+  const W = 300, H = 46, y = v => (H - 6 - ((v - (lo - pad)) / (hi - lo + 2 * pad)) * (H - 12)).toFixed(1);
+  const x = i => (6 + (i / (pts.length - 1)) * (W - 12)).toFixed(1);
+  const cut = pts.findIndex(p => p.d > today);
+  const past = cut === -1 ? pts : pts.slice(0, Math.max(cut, 1));
+  const path = list => list.map(p => `${pts.indexOf(p) ? "L" : "M"}${x(pts.indexOf(p))} ${y(p.v)}`).join("").replace(/^L/, "M");
+  const future = cut > 0 ? pts.slice(cut - 1) : cut === 0 ? pts : [];
+  const ti = pts.findIndex(p => p.d === today), si = pts.length - 1;
+  const short = d => { const z = parse(d); return `${z.getDate()} ${MON[z.getMonth()]}`; };
+  return `<div class="ds-trend" aria-hidden="true">
+    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+      ${past.length > 1 ? `<path class="tl" d="${path(past)}"/>` : ""}
+      ${future.length > 1 ? `<path class="tl proj" d="${path(future)}"/>` : ""}
+    </svg>
+    ${ti >= 0 && ti !== si ? `<i class="tnow" style="left:${(x(ti) / W * 100).toFixed(2)}%;top:${y(pts[ti].v)}px"></i>` : ""}
+    <i class="tsel" data-glide="trenddot" data-prop="top" data-to="${y(pts[si].v)}px" style="left:${(x(si) / W * 100).toFixed(2)}%;top:${y(pts[si].v)}px"></i>
+    <em>${short(pts[0].d)}</em><em>${day === today ? "today" : short(day)}</em>
   </div>`;
 }
 
