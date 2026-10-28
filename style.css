@@ -106,7 +106,14 @@ main { max-width: 640px; margin: 0 auto; padding: 14px 16px; }
 
 /* ---------- week strip & day header ---------- */
 .week { display: flex; align-items: center; gap: 4px; margin-bottom: 12px; }
-.wk-days { flex: 1; display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; touch-action: pan-y; will-change: transform; }
+.wk-days {
+  flex: 1; min-width: 0; display: grid; grid-auto-flow: column; grid-auto-columns: calc((100% - 24px) / 7); gap: 4px;
+  overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x mandatory; scrollbar-width: none; padding: 4px 0 2px; cursor: grab;
+}
+.wk-days::-webkit-scrollbar { display: none; }
+.wk-days.dragging { scroll-snap-type: none; cursor: grabbing; user-select: none; }
+.wk-days .wk { scroll-snap-align: start; }
+.wk .mo { position: absolute; top: -4px; left: 50%; transform: translateX(-50%); font-style: normal; font-size: 9px; font-weight: 750; letter-spacing: .04em; text-transform: uppercase; color: var(--accent); background: var(--bg); padding: 0 4px; border-radius: 6px; line-height: 1.3; }
 .wk-arrow { width: 28px; height: 56px; border: 0; background: transparent; color: var(--muted); font-size: 22px; border-radius: 10px; }
 .wk {
   position: relative; height: 62px; border: 1px solid transparent; border-radius: 16px; background: var(--panel);
@@ -346,16 +353,16 @@ ul.hist { margin: 6px 0 0; padding-left: 18px; font-size: 13px; color: var(--mut
 ::view-transition-new(tabbar), ::view-transition-new(hero) { animation: none; }
 
 /* Another week, another tab: the whole content slides. */
-[data-dir="next"]::view-transition-old(root), [data-dir="next"]::view-transition-old(week), [data-dir="next"]::view-transition-old(daybody) { animation-name: outLeft; }
-[data-dir="next"]::view-transition-new(root), [data-dir="next"]::view-transition-new(week), [data-dir="next"]::view-transition-new(daybody) { animation-name: inRight; }
-[data-dir="prev"]::view-transition-old(root), [data-dir="prev"]::view-transition-old(week), [data-dir="prev"]::view-transition-old(daybody) { animation-name: outRight; }
-[data-dir="prev"]::view-transition-new(root), [data-dir="prev"]::view-transition-new(week), [data-dir="prev"]::view-transition-new(daybody) { animation-name: inLeft; }
+[data-dir="next"]::view-transition-old(root), [data-dir="next"]::view-transition-old(daybody) { animation-name: outLeft; }
+[data-dir="next"]::view-transition-new(root), [data-dir="next"]::view-transition-new(daybody) { animation-name: inRight; }
+[data-dir="prev"]::view-transition-old(root), [data-dir="prev"]::view-transition-old(daybody) { animation-name: outRight; }
+[data-dir="prev"]::view-transition-new(root), [data-dir="prev"]::view-transition-new(daybody) { animation-name: inLeft; }
 [data-dir="next"]::view-transition-group(wksel), [data-dir="prev"]::view-transition-group(wksel) { animation: none; }
 [data-dir="next"]::view-transition-old(wksel), [data-dir="prev"]::view-transition-old(wksel) { display: none; }
 
-/* Same week: the strip holds still, the highlight glides, the classes nudge. */
-[data-dir^="d"]::view-transition-old(week), [data-dir^="d"]::view-transition-new(week) { animation: none; }
-[data-dir^="d"]::view-transition-old(week) { display: none; }
+/* The strip never slides as a whole (it scrolls itself); the highlight glides, the classes nudge. */
+::view-transition-old(week), ::view-transition-new(week) { animation: none; }
+::view-transition-old(week) { display: none; }
 [data-dir^="d"]::view-transition-group(wksel) { animation-duration: .38s; animation-timing-function: var(--spring); }
 [data-dir="dnext"]::view-transition-old(daybody) { animation-name: nudgeOutL; }
 [data-dir="dnext"]::view-transition-new(daybody) { animation-name: nudgeInR; }
@@ -430,7 +437,7 @@ html[data-theme="paper"] .wk.sel, html[data-theme="paper"] .day.sel, html[data-t
 .ds-mid { min-width: 0; }
 .ds-mid small { display: block; font-size: 10.5px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: var(--t); }
 .ds-mid b { display: block; font-size: 30px; line-height: 1.05; font-weight: 850; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
-.ds-mid span { display: block; font-size: 12px; color: var(--muted); }
+.ds-mid > span { display: block; font-size: 12px; color: var(--muted); }
   background: linear-gradient(90deg, var(--bad) 0 50%, var(--warn) 50% 60%, var(--good) 60% 100%); opacity: .9; }
 /* The percentage is the hero of the day gauge */
 .daysum { gap: 2px 12px; padding: 12px 16px 26px; }
@@ -439,22 +446,16 @@ html[data-theme="paper"] .wk.sel, html[data-theme="paper"] .day.sel, html[data-t
   font-size: 46px; line-height: 1; letter-spacing: -.04em; margin: 2px 0 3px;
   background: linear-gradient(180deg, var(--text) 20%, var(--t) 130%); -webkit-background-clip: text; background-clip: text; color: transparent;
 }
-.ds-mid span { font-size: 11.5px; }
+.ds-mid > span { font-size: 11.5px; }
 
 /* Rolling numbers */
 [data-roll] { display: inline-block; }
-.roll { position: relative; display: inline-grid; overflow: hidden; vertical-align: bottom; }
-.roll > span { grid-area: 1 / 1; animation-duration: .55s; animation-timing-function: var(--spring); animation-fill-mode: both; }
-.roll.up .o { animation-name: rollOutUp; }
-.roll.up .n { animation-name: rollInUp; }
-.roll.down .o { animation-name: rollOutDown; }
-.roll.down .n { animation-name: rollInDown; }
-@keyframes rollOutUp { to { transform: translateY(-100%); opacity: 0; } }
-@keyframes rollInUp { from { transform: translateY(100%); opacity: 0; } }
-@keyframes rollOutDown { to { transform: translateY(100%); opacity: 0; } }
-@keyframes rollInDown { from { transform: translateY(-100%); opacity: 0; } }
-.went-up, .went-up .roll > span { color: var(--good) !important; -webkit-text-fill-color: var(--good); transition: color .9s; }
-.went-down, .went-down .roll > span { color: var(--bad) !important; -webkit-text-fill-color: var(--bad); transition: color .9s; }
+.odo { display: inline-block; height: 1.15em; line-height: 1.15em; overflow: hidden; vertical-align: bottom;
+  -webkit-mask-image: linear-gradient(transparent, #000 22%, #000 78%, transparent); mask-image: linear-gradient(transparent, #000 22%, #000 78%, transparent); }
+.odo-c { display: flex; flex-direction: column; transition: transform .75s cubic-bezier(.2, 1.25, .35, 1); will-change: transform; }
+.odo-c > span { height: 1.15em; text-align: center; }
+.went-up, .went-up .odo-c > span { color: var(--good) !important; -webkit-text-fill-color: var(--good); transition: color .9s; }
+.went-down, .went-down .odo-c > span { color: var(--bad) !important; -webkit-text-fill-color: var(--bad); transition: color .9s; }
 
 /* Day gauge: exact change chip + zoomed scale */
 .daysum { grid-template-columns: auto 1fr auto; padding-bottom: 14px; }
@@ -470,7 +471,7 @@ html[data-theme="paper"] .wk.sel, html[data-theme="paper"] .day.sel, html[data-t
 .zgap::after { content: ""; position: absolute; inset: 0; background: repeating-linear-gradient(90deg, transparent 0 8px, rgba(255, 255, 255, .35) 8px 10px); animation: zflow 1s linear infinite; }
 .zgap.down::after { animation-direction: reverse; }
 @keyframes zflow { to { background-position: 18px 0; } }
-.zmin { position: absolute; top: -5px; width: 2px; height: 16px; border-radius: 1px; background: var(--text); opacity: .75; transform: translateX(-50%); }
+.zmin { transition: left .6s var(--spring); position: absolute; top: -5px; width: 2px; height: 16px; border-radius: 1px; background: var(--text); opacity: .75; transform: translateX(-50%); }
 .zmin em { position: absolute; top: -15px; left: 50%; transform: translateX(-50%); font-style: normal; font-size: 9.5px; font-weight: 800; color: var(--muted); white-space: nowrap; }
 .ztrack i { position: absolute; top: 50%; transform: translate(-50%, -50%); border-radius: 50%; transition: left .6s var(--spring); }
 .znow { width: 11px; height: 11px; background: var(--panel-2); border: 2px solid var(--muted); }

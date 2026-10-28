@@ -1,7 +1,7 @@
 "use strict";
 
 const KEY = "attendance.v3";
-const APP_VERSION = "1.25.0"; // semver: new feature → minor, fix → patch; keep in step with CACHE in sw.js
+const APP_VERSION = "1.26.0"; // semver: new feature → minor, fix → patch; keep in step with CACHE in sw.js
 const WD = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const MONTH_FULL = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -491,7 +491,8 @@ function renderDay() {
   if (info && sel <= M.lastTheory) h += `<button class="link" data-act="dayEdit">Emergency change: holiday, half day, cancelled classes or extra working day…</button>`;
 
   h += `<h2>Subjects</h2>${cardsHtml()}</div>`;
-  $("#tab-day").innerHTML = h;
+  morph($("#tab-day"), h);
+  placeStrip();
   flashIds = [];
 }
 
@@ -504,10 +505,10 @@ function daySummary(day, today) {
   const a = shown(now.exact), b = shown(o.exact), diff = Math.round((b - a) * 10) / 10;
   const tone = !ok(o.A, o.T) ? "bad" : diff < 0 ? "warn" : "good";
   const chip = future && diff !== 0
-    ? `<span class="ds-chip ${diff < 0 ? "down" : "up"}">${diff < 0 ? "▼" : "▲"} ${Math.abs(diff).toFixed(1)}<i>vs today</i></span>` : "";
+    ? `<span class="ds-chip ${diff < 0 ? "down" : "up"}"><b>${diff < 0 ? "▼" : "▲"} <span data-roll="chip" data-v="${diff}">${Math.abs(diff).toFixed(1)}</span></b><i>vs today</i></span>` : "";
   return `<div class="daysum ds-${tone}">
     <svg class="ds-ring" viewBox="0 0 44 44" aria-hidden="true"><circle class="bg" cx="22" cy="22" r="18"/>
-      <circle class="fg" data-glide="dayring" data-prop="strokeDashoffset" data-to="${(100 - o.exact).toFixed(1)}" cx="22" cy="22" r="18" pathLength="100" style="stroke-dashoffset:${(100 - o.exact).toFixed(1)}"/></svg>
+      <circle class="fg" cx="22" cy="22" r="18" pathLength="100" style="stroke-dashoffset:${(100 - o.exact).toFixed(1)}"/></svg>
     <div class="ds-mid">
       <small>${future ? "Projected by this day" : day === today ? "Overall today" : "Overall up to this day"}</small>
       <b data-roll="day" data-v="${o.exact}">${fmtx(o.exact)}</b>
@@ -530,14 +531,14 @@ function zoomScale(from, to) {
   const minIn = MIN >= lo && MIN <= hi, cushion = Math.round((to - MIN) * 10) / 10;
   const gap = from === null || from === to ? "" : (() => {
     const l = Math.min(from, to), r = Math.max(from, to), down = to < from;
-    return `<span class="zgap ${down ? "down" : "up"}" data-glide="zgapL" data-prop="left" data-to="${at(l)}%" style="left:${at(l)}%;width:${(at(r) - at(l)).toFixed(2)}%"></span>`;
+    return `<span class="zgap ${down ? "down" : "up"}" style="left:${at(l)}%;width:${(at(r) - at(l)).toFixed(2)}%"></span>`;
   })();
   return `<div class="zscale" aria-hidden="true">
     <div class="ztrack">
       ${gap}
       ${minIn ? `<span class="zmin" style="left:${at(MIN)}%"><em>${MIN}%</em></span>` : ""}
       ${from !== null && from !== to ? `<i class="znow" style="left:${at(from)}%"></i>` : ""}
-      <i class="zhere" data-glide="zhere" data-prop="left" data-to="${at(to)}%" style="left:${at(to)}%"></i>
+      <i class="zhere" style="left:${at(to)}%"></i>
     </div>
     <div class="zlabels"><em>${lo}%</em>
       <span class="zcush ${cushion < 0 ? "bad" : cushion < 2 ? "warn" : ""}">${cushion === 0 ? `right at the ${MIN}% limit` : cushion > 0 ? `${minIn ? "" : "◂ "}${cushion.toFixed(1)} above the ${MIN}% limit` : `${Math.abs(cushion).toFixed(1)} below the ${MIN}% limit${minIn ? "" : " ▸"}`}</span>
@@ -545,24 +546,47 @@ function zoomScale(from, to) {
   </div>`;
 }
 
-// Seven-day strip (Mon–Sun) around the selected day, with arrows to move a week.
+// One long strip of every date in the semester; it scrolls freely and shows a week at a time.
 function weekStrip() {
-  const d = parse(sel), monday = addDays(sel, -((d.getDay() + 6) % 7)), today = todayIso();
+  const today = todayIso(), first = M.dates[0] || sel, last = M.dates[M.dates.length - 1] || sel;
+  const from = mondayOf([first, sel, today].sort()[0]), to = addDays(mondayOf([last, sel, today].sort()[2]), 6);
+  const byDay = {};
+  for (const c of M.courses) for (const k of c.classes) {
+    if (k.date < from || k.date > to) continue;
+    const x = byDay[k.date] || (byDay[k.date] = { abs: 0, cls: 0, unm: 0 });
+    const st = statusOf(c, k);
+    x.cls++;
+    if (st === "A") x.abs++;
+    if (st === null && k.date <= today) x.unm++;
+  }
   let h = `<div class="week"><button class="wk-arrow" data-act="prevWeek" aria-label="Previous week">‹</button><div class="wk-days">`;
-  for (let i = 0; i < 7; i++) {
-    const ds = addDays(monday, i), x = parse(ds), info = M.cal[ds];
-    let abs = 0, cls = 0, unm = 0;
-    for (const c of M.courses) for (const k of c.classes) if (k.date === ds) {
-      cls++;
-      const st = statusOf(c, k);
-      if (st === "A") abs++;
-      if (st === null && ds <= today) unm++;
-    }
+  for (let ds = from; ds <= to; ds = addDays(ds, 1)) {
+    const x = parse(ds), info = M.cal[ds], { abs = 0, cls = 0, unm = 0 } = byDay[ds] || {};
     const kind = !info ? "off" : /holiday/i.test(info.type) ? "hol" : /CAT|FAT/i.test(info.type) ? "exam" : cls ? "class" : "off";
     const mark = abs ? `<i class="m abs"></i>` : unm ? `<i class="m unm"></i>` : cls ? `<i class="m"></i>` : "";
-    h += `<button class="wk ${kind}${ds === sel ? " sel" : ""}${ds === today ? " today" : ""}" data-date="${ds}"><small>${WD[x.getDay()][0]}</small><b>${x.getDate()}</b>${mark}</button>`;
+    const mo = x.getDate() === 1 || ds === from ? `<em class="mo">${x.toLocaleString("en", { month: "short" })}</em>` : "";
+    h += `<button class="wk ${kind}${ds === sel ? " sel" : ""}${ds === today ? " today" : ""}" data-date="${ds}">${mo}<small>${WD[x.getDay()][0]}</small><b>${x.getDate()}</b>${mark}</button>`;
   }
   return h + `</div><button class="wk-arrow" data-act="nextWeek" aria-label="Next week">›</button></div>`;
+}
+// Strip geometry: which dates are in view, and scrolling a date's week into view.
+let stripLeft = null;
+function stripInfo() {
+  const el = $(".wk-days");
+  if (!el || el.children.length < 2) return null;
+  const step = el.children[1].offsetLeft - el.children[0].offsetLeft, i = Math.round(el.scrollLeft / step);
+  const days = [...el.children].slice(i, i + 7).map(b => b.dataset.date);
+  return { el, step, days };
+}
+function placeStrip() {
+  const s = stripInfo();
+  if (!s) return;
+  if (stripLeft !== null) s.el.scrollLeft = stripLeft;
+  if (!stripInfo().days.includes(sel)) {
+    const i = [...s.el.children].findIndex(b => b.dataset.date === mondayOf(sel));
+    s.el.scrollLeft = Math.max(0, i) * s.step;
+  }
+  stripLeft = s.el.scrollLeft;
 }
 
 // Prompt to install / bookmark, until installed or dismissed.
@@ -996,13 +1020,8 @@ const mondayOf = d => addDays(d, -((parse(d).getDay() + 6) % 7));
 // Moving to another day: glide inside the same week, slide when the week changes.
 function moveTo(d) {
   if (d === sel) return;
-  const fwd = d > sel, same = mondayOf(d) === mondayOf(sel);
+  const x = stripInfo(), fwd = d > sel, same = x ? x.days.includes(d) : mondayOf(d) === mondayOf(sel);
   go(() => { sel = d; tab = "day"; render(); }, same ? (fwd ? "dnext" : "dprev") : (fwd ? "next" : "prev"));
-}
-// Jump a week: land on its Monday, or on today if today is in that week.
-function weekJump(n) {
-  const mon = addDays(mondayOf(sel), 7 * n), today = todayIso();
-  go(() => { sel = mondayOf(today) === mon ? today : mon; render(); }, n > 0 ? "next" : "prev");
 }
 // Smooth cross-fade between screens where the browser supports it.
 function go(fn, dir) {
@@ -1029,28 +1048,65 @@ function countTo(el, target) {
   };
   countRaf = requestAnimationFrame(tick);
 }
-// Numbers roll up or down to their new value, and gauges glide, instead of jumping.
-const lastRoll = {}, lastGlide = {};
+// Update a screen in place: keep the elements that are still there and change only
+// what differs, so CSS transitions (ring, scale dot, gap band) play live.
+function morph(root, html) {
+  const next = document.createElement(root.tagName);
+  next.innerHTML = html;
+  syncKids(root, next);
+}
+const keyOf = n => n.nodeType !== 1 ? "#" + n.nodeType
+  : [n.tagName, n.classList[0], n.id, n.dataset.course, n.dataset.date, n.dataset.roll, n.dataset.key, n.dataset.slot].join("|");
+function syncKids(a, b) {
+  const pool = [...a.childNodes];
+  [...b.childNodes].forEach((nb, i) => {
+    const j = pool.findIndex(n => keyOf(n) === keyOf(nb));
+    let node;
+    if (j < 0) node = nb;
+    else {
+      node = pool.splice(j, 1)[0];
+      if (node.nodeType === 1) {
+        for (const at of [...node.attributes]) if (!nb.hasAttribute(at.name)) node.removeAttribute(at.name);
+        for (const at of nb.attributes) if (node.getAttribute(at.name) !== at.value) node.setAttribute(at.name, at.value);
+        if (node.dataset.roll !== undefined) { if (node.textContent !== nb.textContent || node.children.length) node.textContent = nb.textContent; }
+        else syncKids(node, nb);
+      } else if (node.nodeValue !== nb.nodeValue) node.nodeValue = nb.nodeValue;
+    }
+    if (a.childNodes[i] !== node) a.insertBefore(node, a.childNodes[i] || null);
+  });
+  pool.forEach(n => n.remove());
+}
+
+// Numbers roll like an odometer: each changed digit spins through the digits
+// between old and new, in the direction the value moved.
+const lastRoll = {};
 function motion() {
   document.querySelectorAll("[data-roll]").forEach(el => {
     const key = el.dataset.roll, v = parseFloat(el.dataset.v), text = el.textContent, prev = lastRoll[key];
     lastRoll[key] = { v, text };
     if (!prev || isNaN(v) || isNaN(prev.v) || prev.text === text || calm()) return;
-    const up = v > prev.v;
-    el.innerHTML = `<span class="roll ${up ? "up" : "down"}"><span class="o">${prev.text}</span><span class="n">${text}</span></span>`;
-    el.classList.add(up ? "went-up" : "went-down");
-    setTimeout(() => { el.textContent = text; el.classList.remove("went-up", "went-down"); }, 900);
+    odometer(el, prev.text, text, v > prev.v);
   });
-  document.querySelectorAll("[data-glide]").forEach(el => {
-    const key = el.dataset.glide, prop = el.dataset.prop, to = el.dataset.to, from = lastGlide[key];
-    lastGlide[key] = to;
-    if (from === undefined || from === to || calm()) return;
-    el.style.transition = "none";
-    el.style[prop] = from;
-    el.getBoundingClientRect();
-    el.style.transition = "";
-    requestAnimationFrame(() => (el.style[prop] = to));
-  });
+}
+function odometer(el, from, to, up) {
+  const n = Math.max(from.length, to.length), f = from.padStart(n), t = to.padStart(n);
+  let h = "", cols = 0;
+  for (let i = 0; i < n; i++) {
+    if (f[i] === t[i]) { h += esc(t[i]).replace(" ", ""); continue; }
+    const seq = [f[i]];
+    if (/\d/.test(f[i]) && /\d/.test(t[i])) { let d = +f[i]; while (d !== +t[i]) { d = (d + (up ? 1 : 9)) % 10; seq.push(String(d)); } }
+    else seq.push(t[i]);
+    if (!up) seq.reverse();
+    const len = seq.length - 1, start = up ? 0 : len, end = up ? len : 0;
+    h += `<span class="odo"><span class="odo-c" style="transform:translateY(${-start * 1.15}em);transition-delay:${cols++ * 45}ms" data-end="${-end * 1.15}">${seq.map(c => `<span>${c === " " ? "&nbsp;" : esc(c)}</span>`).join("")}</span></span>`;
+  }
+  el.innerHTML = h;
+  el.classList.remove("went-up", "went-down");
+  el.classList.add(up ? "went-up" : "went-down");
+  el.getBoundingClientRect();
+  el.querySelectorAll(".odo-c").forEach(c => { c.style.transform = `translateY(${c.dataset.end}em)`; });
+  clearTimeout(el._odo);
+  el._odo = setTimeout(() => { el.textContent = to; el.classList.remove("went-up", "went-down"); }, 1100);
 }
 
 const buzz = ms => { try { navigator.vibrate && navigator.vibrate(ms); } catch (e) { /* ignore */ } };
@@ -1192,8 +1248,7 @@ document.addEventListener("click", e => {
   if (act === "dayEdit") openDaySheet();
   if (act === "sheetClose") $("#sheet").hidden = true;
   if (act === "dayApply" && !t.disabled) applyDayChange();
-  if (act === "prevWeek") weekJump(-1);
-  if (act === "nextWeek") weekJump(1);
+  if (act === "prevWeek" || act === "nextWeek") { const x = stripInfo(); if (x) x.el.scrollBy({ left: (act === "nextWeek" ? 7 : -7) * x.step, behavior: calm() ? "auto" : "smooth" }); }
   if (act === "today") moveTo(todayIso());
   if (act === "install" && installEvt) { installEvt.prompt(); installEvt.userChoice.finally(() => { installEvt = null; render(); }); }
   if (act === "hideInstall") { try { localStorage.setItem("installHidden", "1"); } catch (e) { /* ignore */ } render(); }
@@ -1269,42 +1324,48 @@ document.addEventListener("touchend", e => {
   touch = null;
 }, { passive: true });
 
-// Drag the week strip with a finger: it follows, and a long or quick drag flips the week.
-let wkDrag = null, wkDragged = false;
-document.addEventListener("touchstart", e => {
-  const strip = e.target.closest(".wk-days");
-  wkDrag = strip && e.touches.length === 1 ? { el: strip, x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now(), dx: 0, on: false } : null;
-}, { passive: true });
-document.addEventListener("touchmove", e => {
-  if (!wkDrag) return;
-  const dx = e.touches[0].clientX - wkDrag.x, dy = e.touches[0].clientY - wkDrag.y;
-  if (!wkDrag.on) {
-    if (Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx)) { wkDrag = null; return; }
-    if (Math.abs(dx) < 8) return;
-    wkDrag.on = true;
-    wkDrag.el.style.transition = "none";
-  }
-  wkDrag.dx = dx;
-  wkDrag.el.style.transform = `translateX(${dx}px)`;
-  wkDrag.el.style.opacity = 1 - Math.min(.5, Math.abs(dx) / wkDrag.el.offsetWidth);
-}, { passive: true });
-document.addEventListener("touchend", () => {
-  if (!wkDrag) return;
-  const { el, dx, t, on } = wkDrag;
-  wkDrag = null;
-  if (!on) return;
-  wkDragged = true;
-  setTimeout(() => { wkDragged = false; }, 350);
-  const flip = Math.abs(dx) > el.offsetWidth * .25 || (Math.abs(dx) > 30 && Math.abs(dx) / (Date.now() - t) > .4);
-  el.style.transition = "transform .16s ease-out, opacity .16s";
-  if (!flip) { el.style.transform = ""; el.style.opacity = ""; return; }
-  buzz(8);
-  el.style.transform = `translateX(${dx < 0 ? -el.offsetWidth : el.offsetWidth}px)`;
-  el.style.opacity = "0";
-  setTimeout(() => weekJump(dx < 0 ? 1 : -1), 150);
-}, { passive: true });
-// A drag shouldn't also count as tapping the day under the finger.
-document.addEventListener("click", e => { if (wkDragged && e.target.closest(".week")) { e.stopPropagation(); e.preventDefault(); } }, true);
+// When the strip stops scrolling and the selected day has gone out of view, pick
+// today if it's in view, else the first Monday in view.
+let settleTimer = 0;
+document.addEventListener("scroll", e => {
+  if (!e.target.classList || !e.target.classList.contains("wk-days")) return;
+  stripLeft = e.target.scrollLeft;
+  clearTimeout(settleTimer);
+  settleTimer = setTimeout(() => {
+    const x = stripInfo();
+    if (!x || stripDrag || x.days.includes(sel)) return;
+    const today = todayIso(), d = x.days.includes(today) ? today : x.days.find(ds => parse(ds).getDay() === 1) || x.days[0];
+    buzz(6);
+    go(() => { sel = d; render(); }, d > sel ? "dnext" : "dprev");
+  }, 140);
+}, true);
+// Laptops: drag the strip with the mouse (trackpads already scroll it sideways).
+let stripDrag = null, stripDragged = false;
+document.addEventListener("pointerdown", e => {
+  const el = e.pointerType === "mouse" && e.button === 0 && e.target.closest(".wk-days");
+  if (el) stripDrag = { el, x: e.clientX, left: el.scrollLeft, moved: false };
+});
+document.addEventListener("pointermove", e => {
+  if (!stripDrag) return;
+  const dx = e.clientX - stripDrag.x;
+  if (!stripDrag.moved && Math.abs(dx) < 5) return;
+  if (!stripDrag.moved) { stripDrag.moved = true; stripDrag.el.classList.add("dragging"); }
+  stripDrag.el.scrollLeft = stripDrag.left - dx;
+});
+document.addEventListener("pointerup", () => {
+  if (!stripDrag) return;
+  const { el, moved, left } = stripDrag;
+  stripDrag = null;
+  if (!moved) return;
+  stripDragged = true;
+  setTimeout(() => { stripDragged = false; }, 0);
+  // Let go: finish on the nearest week edge in the direction of the drag.
+  const step = el.children[1].offsetLeft - el.children[0].offsetLeft, i = el.scrollLeft / step;
+  el.classList.remove("dragging");
+  el.scrollTo({ left: (el.scrollLeft > left ? Math.ceil(i) : Math.floor(i)) * step, behavior: calm() ? "auto" : "smooth" });
+});
+// A drag shouldn't also count as tapping the day under the pointer.
+document.addEventListener("click", e => { if (stripDragged && e.target.closest(".week")) { e.stopPropagation(); e.preventDefault(); } }, true);
 
 // Roll over to the new day if the app stays open past midnight.
 let lastToday = todayIso();
