@@ -1,7 +1,7 @@
 "use strict";
 
 const KEY = "attendance.v3";
-const APP_VERSION = "1.24.0"; // semver: new feature → minor, fix → patch; keep in step with CACHE in sw.js
+const APP_VERSION = "1.24.1"; // semver: new feature → minor, fix → patch; keep in step with CACHE in sw.js
 const WD = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const MONTH_FULL = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -396,7 +396,7 @@ function renderHeader() {
   const below = M.courses.some(c => { const x = stats(c); return !ok(x.A, x.T) || x.canSkip < 0; });
   setRing(o.exact, below ? "bad" : "");
   $("#overallSub").innerHTML = `<span>${o.A}/${o.T} attended · ${risky ? `<b>${risky}</b> at the limit` : "all subjects safe"}</span>` +
-    `<span class="endchip">${o.planned ? "With your plans" : "If you attend the rest"} → ${fmtx(o.end)}</span>`;
+    `<span class="endchip">${o.planned ? "With your plans" : "If you attend the rest"} → ${fmtx(o.end)} <small class="endnote">(till sem end)</small></span>`;
   const n = editsList().length + Object.keys(state.calEdits || {}).length, b = document.querySelector('[data-tab="log"] span');
   if (b) b.innerHTML = `Changes${n ? `<i class="badge">${n}</i>` : ""}`;
 }
