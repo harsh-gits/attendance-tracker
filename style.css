@@ -98,7 +98,7 @@ a { color: var(--accent); }
 .top .sub { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; font-size: 13px; opacity: .95; margin-top: 2px; }
 .top .sub b { font-weight: 800; }
 .top .endchip { display: inline-block; padding: 3px 10px; border-radius: 999px; background: rgba(255, 255, 255, .18); backdrop-filter: blur(6px); font-weight: 650; font-size: 12.5px; }
-.top .endnote { font-size: 11px; font-weight: 500; opacity: .75; }
+.top .endnote { font-size: 11.5px; font-weight: 650; opacity: .95; }
 
 main { max-width: 640px; margin: 0 auto; padding: 14px 16px; }
 .tab { display: none; }
@@ -106,7 +106,7 @@ main { max-width: 640px; margin: 0 auto; padding: 14px 16px; }
 
 /* ---------- week strip & day header ---------- */
 .week { display: flex; align-items: center; gap: 4px; margin-bottom: 12px; }
-.wk-days { flex: 1; display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.wk-days { flex: 1; display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; touch-action: pan-y; will-change: transform; }
 .wk-arrow { width: 28px; height: 56px; border: 0; background: transparent; color: var(--muted); font-size: 22px; border-radius: 10px; }
 .wk {
   position: relative; height: 62px; border: 1px solid transparent; border-radius: 16px; background: var(--panel);

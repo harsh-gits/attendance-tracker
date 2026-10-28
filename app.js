@@ -1,7 +1,7 @@
 "use strict";
 
 const KEY = "attendance.v3";
-const APP_VERSION = "1.24.1"; // semver: new feature → minor, fix → patch; keep in step with CACHE in sw.js
+const APP_VERSION = "1.25.0"; // semver: new feature → minor, fix → patch; keep in step with CACHE in sw.js
 const WD = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const MONTH_FULL = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -999,11 +999,17 @@ function moveTo(d) {
   const fwd = d > sel, same = mondayOf(d) === mondayOf(sel);
   go(() => { sel = d; tab = "day"; render(); }, same ? (fwd ? "dnext" : "dprev") : (fwd ? "next" : "prev"));
 }
+// Jump a week: land on its Monday, or on today if today is in that week.
+function weekJump(n) {
+  const mon = addDays(mondayOf(sel), 7 * n), today = todayIso();
+  go(() => { sel = mondayOf(today) === mon ? today : mon; render(); }, n > 0 ? "next" : "prev");
+}
 // Smooth cross-fade between screens where the browser supports it.
 function go(fn, dir) {
   if (!document.startViewTransition || calm()) { fn(); return; }
   document.documentElement.dataset.dir = dir || "";
-  document.startViewTransition(fn);
+  const vt = document.startViewTransition(fn);
+  vt.ready.catch(() => {}); // a skipped transition still runs fn; don't report it as an error
 }
 function setRing(p, tone) {
   const fg = $("#ringFg");
@@ -1186,8 +1192,8 @@ document.addEventListener("click", e => {
   if (act === "dayEdit") openDaySheet();
   if (act === "sheetClose") $("#sheet").hidden = true;
   if (act === "dayApply" && !t.disabled) applyDayChange();
-  if (act === "prevWeek") go(() => { sel = addDays(sel, -7); render(); }, "prev");
-  if (act === "nextWeek") go(() => { sel = addDays(sel, 7); render(); }, "next");
+  if (act === "prevWeek") weekJump(-1);
+  if (act === "nextWeek") weekJump(1);
   if (act === "today") moveTo(todayIso());
   if (act === "install" && installEvt) { installEvt.prompt(); installEvt.userChoice.finally(() => { installEvt = null; render(); }); }
   if (act === "hideInstall") { try { localStorage.setItem("installHidden", "1"); } catch (e) { /* ignore */ } render(); }
@@ -1262,6 +1268,43 @@ document.addEventListener("touchend", e => {
   }
   touch = null;
 }, { passive: true });
+
+// Drag the week strip with a finger: it follows, and a long or quick drag flips the week.
+let wkDrag = null, wkDragged = false;
+document.addEventListener("touchstart", e => {
+  const strip = e.target.closest(".wk-days");
+  wkDrag = strip && e.touches.length === 1 ? { el: strip, x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now(), dx: 0, on: false } : null;
+}, { passive: true });
+document.addEventListener("touchmove", e => {
+  if (!wkDrag) return;
+  const dx = e.touches[0].clientX - wkDrag.x, dy = e.touches[0].clientY - wkDrag.y;
+  if (!wkDrag.on) {
+    if (Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx)) { wkDrag = null; return; }
+    if (Math.abs(dx) < 8) return;
+    wkDrag.on = true;
+    wkDrag.el.style.transition = "none";
+  }
+  wkDrag.dx = dx;
+  wkDrag.el.style.transform = `translateX(${dx}px)`;
+  wkDrag.el.style.opacity = 1 - Math.min(.5, Math.abs(dx) / wkDrag.el.offsetWidth);
+}, { passive: true });
+document.addEventListener("touchend", () => {
+  if (!wkDrag) return;
+  const { el, dx, t, on } = wkDrag;
+  wkDrag = null;
+  if (!on) return;
+  wkDragged = true;
+  setTimeout(() => { wkDragged = false; }, 350);
+  const flip = Math.abs(dx) > el.offsetWidth * .25 || (Math.abs(dx) > 30 && Math.abs(dx) / (Date.now() - t) > .4);
+  el.style.transition = "transform .16s ease-out, opacity .16s";
+  if (!flip) { el.style.transform = ""; el.style.opacity = ""; return; }
+  buzz(8);
+  el.style.transform = `translateX(${dx < 0 ? -el.offsetWidth : el.offsetWidth}px)`;
+  el.style.opacity = "0";
+  setTimeout(() => weekJump(dx < 0 ? 1 : -1), 150);
+}, { passive: true });
+// A drag shouldn't also count as tapping the day under the finger.
+document.addEventListener("click", e => { if (wkDragged && e.target.closest(".week")) { e.stopPropagation(); e.preventDefault(); } }, true);
 
 // Roll over to the new day if the app stays open past midnight.
 let lastToday = todayIso();
