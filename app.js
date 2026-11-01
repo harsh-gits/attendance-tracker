@@ -1,7 +1,7 @@
 "use strict";
 
 const KEY = "attendance.v3";
-const APP_VERSION = "1.26.0"; // semver: new feature → minor, fix → patch; keep in step with CACHE in sw.js
+const APP_VERSION = "1.27.0"; // semver: new feature → minor, fix → patch; keep in step with CACHE in sw.js
 const WD = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const MONTH_FULL = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -367,10 +367,14 @@ const $ = q => document.querySelector(q);
 function render() {
   const setup = !M;
   document.body.classList.toggle("setup", setup);
-  renderHeader();
   if (setup) tab = "day";
+  document.body.dataset.tab = tab;
+  renderHeader();
   document.querySelectorAll(".tab").forEach(el => el.classList.toggle("active", el.id === "tab-" + tab));
-  document.querySelectorAll("nav.tabs button").forEach(b => b.classList.toggle("on", b.dataset.tab === tab));
+  document.querySelectorAll("nav.tabs button").forEach(b => {
+    b.classList.toggle("on", b.dataset.tab === tab);
+    if (b.dataset.tab === tab) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current");
+  });
   if (setup) { $("#tab-day").innerHTML = importHtml(true); return; }
   if (tab === "day") renderDay();
   if (tab === "subj") renderSubjects();
@@ -382,7 +386,7 @@ function render() {
 
 function renderHeader() {
   if (!M) {
-    setRing(0, "");
+    $("#sky").textContent = "";
     $("#sem").textContent = "Attendance";
     $("#overall").textContent = "Welcome";
     $("#overallSub").textContent = "Import once from your student portal to get started";
@@ -393,12 +397,31 @@ function renderHeader() {
   for (const c of M.courses) { const s = stats(c); if (s.canSkip < 0 || Math.floor(s.canSkip / c.perSession) === 0) risky++; }
   $("#sem").textContent = M.sem;
   countTo($("#overall"), o.exact);
-  const below = M.courses.some(c => { const x = stats(c); return !ok(x.A, x.T) || x.canSkip < 0; });
-  setRing(o.exact, below ? "bad" : "");
-  $("#overallSub").innerHTML = `<span>${o.A}/${o.T} attended · ${risky ? `<b>${risky}</b> at the limit` : "all subjects safe"}</span>` +
-    `<span class="endchip">${o.planned ? "With your plans" : "If you attend the rest"} → ${fmtx(o.end)} <small class="endnote">(till sem end)</small></span>`;
+  $("#overallSub").innerHTML = `<span>${o.A} of ${o.T} classes attended</span>` +
+    `<span>${risky ? `<span class="risk">${risky} ${risky === 1 ? "subject" : "subjects"} at the limit</span>` : "All subjects safe"}</span>` +
+    `<span><b>${fmtx(o.end)}</b> by sem end ${o.planned ? "with your plans" : "if you attend the rest"}</span>`;
+  morph($("#sky"), skyHtml());
   const n = editsList().length + Object.keys(state.calEdits || {}).length, b = document.querySelector('[data-tab="log"] span');
   if (b) b.innerHTML = `Changes${n ? `<i class="badge">${n}</i>` : ""}`;
+}
+
+// Short name for a subject's bar: "Operating Systems" becomes "OS".
+const initials = name => {
+  const words = String(name).split(/[\s&/-]+/).filter(w => w && !/^(and|of|the|for|in|to|with)$/i.test(w));
+  return words.length === 1 ? words[0].slice(0, 4) : words.map(w => w[0].toUpperCase()).join("").slice(0, 4);
+};
+// One bar per subject, lowest first. The scale runs from 40% to 100%, so the limit
+// sits at (MIN - 40) / 60 of the height; the stylesheet draws the line there.
+function skyHtml() {
+  const list = M.courses.map(c => ({ c, s: stats(c) }))
+    .sort((a, b) => (a.s.exact === null ? 101 : a.s.exact) - (b.s.exact === null ? 101 : b.s.exact));
+  return `<div class="sky-line"><em>${MIN}%</em></div>` + list.map(({ c, s }, i) => {
+    const tone = s.canSkip < 0 || !ok(s.A, s.T) ? "bad" : Math.floor(s.canSkip / c.perSession) === 0 ? "warn" : "good";
+    const h = s.pct === null ? 0 : Math.max(0, Math.min(100, ((s.pct - 40) / 60) * 100));
+    const left = tone === "bad" ? "at risk" : tone === "warn" ? "can't skip any more" : `can skip ${Math.floor(s.canSkip / c.perSession)}`;
+    return `<button class="sky-b sky-${tone}" data-course="${esc(c.key)}" style="--h:${Math.max(h, 12).toFixed(1)}%;--i:${i}" aria-label="${esc(c.name)}: ${fmt(s.pct)}, ${left}" title="${esc(c.name)}">
+      <span class="sky-v">${s.pct === null ? "–" : s.pct}</span><span class="sky-f"><span class="sky-n">${esc(initials(c.name))}</span></span></button>`;
+  }).join("");
 }
 
 function importHtml(first) {
@@ -434,7 +457,7 @@ function importHtml(first) {
 function statusButtons(c, k) {
   const st = statusOf(c, k);
   return `<div class="seg" data-key="${esc(c.key)}" data-date="${k.date}" data-slot="${esc(k.slot)}">` +
-    ["P", "A", "OD", "C"].map(s => `<button data-st="${s}" class="${st === s ? "on" : ""}" title="${STATUS[s]}">${s === "C" ? "Off" : s}</button>`).join("") +
+    ["P", "A", "OD", "C"].map(s => `<button data-st="${s}" class="${st === s ? "on" : ""}" title="${STATUS[s]}" aria-label="${STATUS[s]}" aria-pressed="${st === s}">${s === "C" ? "Off" : s}</button>`).join("") +
     `</div>`;
 }
 function sourceTag(c, k) {
@@ -453,7 +476,7 @@ function renderDay() {
   for (const c of M.courses) for (const k of c.classes) if (k.date === sel) sessions.push({ c, k });
   sessions.sort((a, b) => a.k.time.localeCompare(b.k.time));
 
-  let h = installHtml() + alertsHtml() + weekStrip() + `<div class="daybody">
+  let h = `<div class="dayleft">` + alertsHtml() + weekStrip() + `<div class="daybody">
     <div class="daynav">
       <div class="date"><b>${sel === today ? "Today · " : ""}${nice(sel)}</b><small>${esc(label)}</small></div>
       ${sel !== today ? `<button class="chip" data-act="today">Today</button>` : ""}
@@ -470,9 +493,10 @@ function renderDay() {
       }
       h += `
         <div class="sess st-${st || "none"}">
+          <time class="stime">${k.time || ""}</time>
           <div class="sinfo">
             <b>${esc(c.name)}</b>
-            <small>${k.time || ""}${k.units > 1 ? ` · ${k.units} slots` : ""} · ${esc(k.slot)} ${sourceTag(c, k)}</small>
+            <small>${k.units > 1 ? `${k.units} slots · ` : ""}${esc(k.slot)} ${sourceTag(c, k)}</small>
             ${hint ? `<small class="hint">${hint}</small>` : ""}
           </div>
           ${statusButtons(c, k)}
@@ -485,12 +509,12 @@ function renderDay() {
         <button data-all="">Clear my marks</button>
       </div>`;
   } else {
-    h += `<p class="empty">${info && /holiday/i.test(info.type) ? "🎉 " : ""}No classes</p>`;
+    h += `<p class="empty">${info && /holiday/i.test(info.type) ? "Holiday, no classes" : "No classes"}</p>`;
   }
   if (info && info.own) h += `<div class="alert warn">You changed this day yourself (the portal had: ${esc(info.was ? info.was.type : "nothing")}). Undo it in Changes.</div>`;
   if (info && sel <= M.lastTheory) h += `<button class="link" data-act="dayEdit">Emergency change: holiday, half day, cancelled classes or extra working day…</button>`;
 
-  h += `<h2>Subjects</h2>${cardsHtml()}</div>`;
+  h += `</div>${installHtml()}</div><div class="dayright"><h2>Subjects</h2>${cardsHtml()}</div>`;
   morph($("#tab-day"), h);
   placeStrip();
   flashIds = [];
@@ -512,7 +536,7 @@ function daySummary(day, today) {
     <div class="ds-mid">
       <small>${future ? "Projected by this day" : day === today ? "Overall today" : "Overall up to this day"}</small>
       <b data-roll="day" data-v="${o.exact}">${fmtx(o.exact)}</b>
-      <span>${future ? "attending all but your planned absences" : `${o.A}/${o.T} classes attended`}</span>
+      ${day === today ? "" : `<span>${future ? "attending all but your planned absences" : `${o.A} of ${o.T} classes attended`}</span>`}
     </div>
     ${chip}
     ${zoomScale(future ? a : null, b)}
@@ -602,7 +626,7 @@ function installHtml() {
     : ios ? `<span>Tap <b>Share</b> <span class="ios-share">⬆︎</span> → <b>Add to Home Screen</b>. It also keeps your data safe.</span>`
     : mobile ? `<span>Browser menu → <b>Install app</b> or <b>Add to Home screen</b>.</span>`
     : `<span>Press <b>${/mac/i.test(navigator.platform) ? "⌘" : "Ctrl"}+D</b> to bookmark, or use the install icon in the address bar.</span>`;
-  return `<div class="install"><div class="ii">📲</div><div class="it"><b>Keep this app one tap away</b>${how}</div><button class="x" data-act="hideInstall" aria-label="Dismiss">✕</button></div>`;
+  return `<div class="install"><div class="it"><b>Keep this app one tap away</b>${how}</div><button class="x" data-act="hideInstall" aria-label="Dismiss">✕</button></div>`;
 }
 
 function alertsHtml() {
@@ -1002,12 +1026,12 @@ function applyDayChange() {
 
 // ---------- themes ----------
 const THEMES = [
-  ["aurora", "Aurora", "linear-gradient(135deg,#3b2fd6,#c026d3)"],
-  ["midnight", "Midnight", "linear-gradient(135deg,#0b1533,#2f56d9)"],
-  ["ocean", "Ocean", "linear-gradient(135deg,#1d4ed8,#06b6d4)"],
-  ["nebula", "Nebula", "linear-gradient(135deg,#4c1d95,#d946ef)"],
-  ["graphite", "Graphite", "linear-gradient(135deg,#1e293b,#64748b)"],
-  ["paper", "Paper", "linear-gradient(135deg,#111,#555)"],
+  ["aurora", "Aurora", "#372a8c"],
+  ["midnight", "Midnight", "#14285c"],
+  ["ocean", "Ocean", "#0a4a5c"],
+  ["nebula", "Nebula", "#4b1a63"],
+  ["graphite", "Graphite", "#2a3440"],
+  ["paper", "Paper", "#161616"],
 ];
 function applyTheme() {
   const t = (state.theme || "ocean") === "aurora" ? "" : state.theme || "ocean";
@@ -1029,12 +1053,6 @@ function go(fn, dir) {
   document.documentElement.dataset.dir = dir || "";
   const vt = document.startViewTransition(fn);
   vt.ready.catch(() => {}); // a skipped transition still runs fn; don't report it as an error
-}
-function setRing(p, tone) {
-  const fg = $("#ringFg");
-  if (!fg) return;
-  fg.style.strokeDashoffset = 100 - Math.max(0, Math.min(100, p || 0));
-  $(".top").dataset.tone = tone;
 }
 let shownPct = null, countRaf = 0;
 function countTo(el, target) {
@@ -1339,6 +1357,14 @@ document.addEventListener("scroll", e => {
     go(() => { sel = d; render(); }, d > sel ? "dnext" : "dprev");
   }, 140);
 }, true);
+// Resizing or rotating changes the width of a day, so keep the selected day's week in view.
+window.addEventListener("resize", () => {
+  const x = stripInfo();
+  if (!x) return;
+  const i = [...x.el.children].findIndex(b => b.dataset.date === mondayOf(sel));
+  x.el.scrollLeft = Math.max(0, i) * x.step;
+  stripLeft = x.el.scrollLeft;
+});
 // Laptops: drag the strip with the mouse (trackpads already scroll it sideways).
 let stripDrag = null, stripDragged = false;
 document.addEventListener("pointerdown", e => {
