@@ -1,7 +1,7 @@
 "use strict";
 
 const KEY = "attendance.v3";
-const APP_VERSION = "1.27.1"; // semver: new feature → minor, fix → patch; keep in step with CACHE in sw.js
+const APP_VERSION = "1.28.0"; // semver: new feature → minor, fix → patch; keep in step with CACHE in sw.js
 const WD = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const MONTH_FULL = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -214,20 +214,95 @@ function verdict(c, s) {
 }
 // How many classes you can still miss before the next exam and stay at 75% on that day.
 const nextExam = c => M.exams.find(e => e.lab === c.lab && e.start > todayIso());
-function beforeExam(c, e) {
+const beforeExam = (c, e) => beforeDate(c, e.start);
+// Classes before `cutoff` (not counting that day): how many you can still miss and be at 75% then.
+function beforeDate(c, cutoff) {
   const today = todayIso();
   let A = 0, T = 0, F = 0, FA = 0;
   for (const k of c.classes) {
     const st = statusOf(c, k);
     if (st === "C") continue;
     if (k.date <= today) { if (st === null) continue; T += k.units; if (counts(st)) A += k.units; }
-    else if (k.date < e.start) { F += k.units; if (st === "A") FA += k.units; }
+    else if (k.date < cutoff) { F += k.units; if (st === "A") FA += k.units; }
   }
+  return skipRoom(A, T, F, FA);
+}
+function skipRoom(A, T, F, FA) {
   const fa = A + F - FA, ft = T + F;
-  if (!ok(fa, ft)) return { n: -1, F, pct: pct(fa, ft) };
+  if (!ok(fa, ft)) return { n: -1, F, FA, pct: pct(fa, ft) };
   let n = 0;
   while (n < F - FA && ok(fa - n - 1, ft)) n++;
-  return { n, F, pct: pct(fa, ft) };
+  return { n, F, FA, pct: pct(fa, ft) };
+}
+
+// Skip budget on the Today tab: how many classes you can miss until an exam, the
+// sem end or a date you pick, keeping each subject (or just the overall) at 75%.
+// Theory counts up to the CAT / FAT you pick; labs always stop at Lab FAT (or your date, if earlier).
+function budgetTargets() {
+  const today = todayIso(), seen = new Set(), out = [];
+  for (const e of M.exams) if (!e.lab && e.start > today && !seen.has(e.label)) { seen.add(e.label); out.push({ v: "exam:" + e.label, label: `${e.label} · ${shortDate(e.start)}`, cutoff: e.start, until: `before ${e.label}` }); }
+  return out;
+}
+const labFat = () => M.exams.find(e => e.lab && e.start > todayIso());
+function cutoffFor(c, t) {
+  if (!c.lab) return t.cutoff;
+  const lf = labFat(), end = lf ? lf.start : addDays(M.lastLab, 1);
+  return t.custom && t.cutoff < end ? t.cutoff : end;
+}
+function budgetHtml() {
+  const today = todayIso(), b = state.budget || {}, targets = budgetTargets();
+  if (!targets.length) return "";
+  const custom = /^date:/.test(b.to || "") && b.to.slice(5) > today;
+  const t = custom ? { v: b.to, custom: true, cutoff: addDays(b.to.slice(5), 1), until: `by ${shortDate(b.to.slice(5))}` }
+    : targets.find(x => x.v === b.to) || targets[0];
+  const each = b.by !== "all";
+  const opts = targets.map(x => `<option value="${x.v}"${x.v === t.v ? " selected" : ""}>${esc(x.label)}</option>`).join("")
+    + `<option value="pick"${custom ? " selected" : ""}>${custom ? shortDate(b.to.slice(5)) : "a date…"}</option>`;
+  const sentence = `<p class="bsent">Until <span class="tok"><select data-budget="to" aria-label="Until">${opts}</select></span>
+    keeping <span class="tok"><select data-budget="by" aria-label="Keep at ${MIN}%"><option value="each"${each ? " selected" : ""}>each subject</option><option value="all"${each ? "" : " selected"}>overall</option></select></span> at ${MIN}%</p>
+    ${custom || b.to === "pick" ? `<input type="date" class="bdate" data-budget="date" min="${addDays(today, 1)}" value="${custom ? b.to.slice(5) : ""}" aria-label="Pick a date">` : ""}`;
+  // One box per class left: planned off first, then the ones you can skip, then the must-attends.
+  const punch = (r, u) => {
+    const total = Math.round(r.F / u), off = Math.round(r.FA / u), free = Math.max(0, Math.floor(r.n / u));
+    if (!total || total > 60) return "";
+    let h = "";
+    for (let i = 0; i < total; i++) h += `<i class="${i < off ? "p-off" : i < off + free ? "p-free" : r.n < 0 ? "p-must bad" : "p-must"}"></i>`;
+    return `<span class="punch" aria-hidden="true">${h}</span>`;
+  };
+  let big, rows = "", hours = false;
+  if (each) {
+    const list = M.courses.map(c => ({ c, r: beforeDate(c, cutoffFor(c, t)), u: c.perSession }))
+      .sort((x, y) => x.r.n / x.u - y.r.n / y.u);
+    big = list.reduce((sum, { r, u }) => sum + Math.max(0, Math.floor(r.n / u)), 0);
+    rows = `<ul class="brows">${list.map(({ c, r, u }) => {
+      const left = Math.round(r.F / u), free = Math.floor(r.n / u);
+      const note = !left ? "no classes left" : r.n < 0 ? `attend all, still ${fmt(r.pct)}` : `${free} of ${left - Math.round(r.FA / u)}`;
+      const cut = cutoffFor(c, t), till = c.lab && cut !== t.cutoff ? `<small class="btill">lab · till ${labFat() && cut === labFat().start ? "Lab FAT" : shortDate(addDays(cut, -1))}</small>` : "";
+      return `<li class="${r.n < 0 ? "bad" : left && free === 0 ? "warn" : ""}"><span class="bname">${esc(c.name)}${till}</span><em data-roll="b-${esc(c.key)}" data-v="${free}">${note}</em>${punch(r, u)}</li>`;
+    }).join("")}</ul>`;
+  } else {
+    let A = 0, T = 0, F = 0, FA = 0;
+    for (const c of M.courses) {
+      for (const k of c.classes) {
+        const st = statusOf(c, k);
+        if (st === "C") continue;
+        if (k.date <= today) { if (st === null) continue; T += k.units; if (counts(st)) A += k.units; }
+        else if (k.date < cutoffFor(c, t)) { F += k.units; if (st === "A") FA += k.units; }
+      }
+    }
+    const r = skipRoom(A, T, F, FA);
+    big = Math.max(0, r.n);
+    hours = true;
+    const room = M.courses.map(c => ({ c, r: beforeDate(c, cutoffFor(c, t)) }));
+    const below = room.filter(x => x.r.n < 0).map(x => esc(x.c.name)), none = room.filter(x => x.r.n === 0 && x.r.F > x.r.FA).map(x => esc(x.c.name));
+    rows = `<div class="ball">${punch(r, 1)}<p>${r.n < 0 ? `Overall stays below ${MIN}% (${fmt(r.pct)}) even if you attend everything.`
+      : `${F - FA} class hours left ${t.until}${FA ? `, after ${FA} you've planned off` : ""}.${M.courses.some(c => c.lab) ? " A lab is 2 hours, missed together; labs count till Lab FAT." : ""}`}${below.length ? ` <b>${below.join(", ")} would still be below ${MIN}%.</b>` : ""}${none.length ? ` <b>Don't miss any ${none.join(" or ")} class.</b>` : ""}</p></div>`;
+  }
+  return `<section class="budget">${sentence}
+    <div class="bbig"><b data-roll="budget" data-v="${big}">${big}</b><span>${hours ? (big === 1 ? "class hour" : "class hours") : big === 1 ? "class" : "classes"} you can miss ${t.until}</span></div>
+    ${rows}
+    ${each ? `<p class="bkey"><i class="p-off"></i>planned off <i class="p-free"></i>can miss <i class="p-must"></i>attend</p>` : ""}
+  </section>`;
 }
 const shortDate = d => { const x = parse(d); return `${x.getDate()} ${MON[x.getMonth()]}`; };
 function examLine(c) {
@@ -476,7 +551,7 @@ function renderDay() {
   for (const c of M.courses) for (const k of c.classes) if (k.date === sel) sessions.push({ c, k });
   sessions.sort((a, b) => a.k.time.localeCompare(b.k.time));
 
-  let h = `<div class="dayleft">` + alertsHtml() + weekStrip() + `<div class="daybody">
+  let h = `<div class="dayleft">` + alertsHtml() + budgetHtml() + weekStrip() + `<div class="daybody">
     <div class="daynav">
       <div class="date"><b>${sel === today ? "Today · " : ""}${nice(sel)}</b><small>${esc(label)}</small></div>
       ${sel !== today ? `<button class="chip" data-act="today">Today</button>` : ""}
@@ -1088,6 +1163,9 @@ function syncKids(a, b) {
         for (const at of nb.attributes) if (node.getAttribute(at.name) !== at.value) node.setAttribute(at.name, at.value);
         if (node.dataset.roll !== undefined) { if (node.textContent !== nb.textContent || node.children.length) node.textContent = nb.textContent; }
         else syncKids(node, nb);
+        // Form fields keep their live value apart from their attributes; carry it over.
+        if (node.tagName === "SELECT") { const o = nb.querySelector("option[selected]"); if (o) node.value = o.value; }
+        if (node.tagName === "INPUT" && node !== document.activeElement && node.type !== "checkbox") node.value = nb.getAttribute("value") || "";
       } else if (node.nodeValue !== nb.nodeValue) node.nodeValue = nb.nodeValue;
     }
     if (a.childNodes[i] !== node) a.insertBefore(node, a.childNodes[i] || null);
@@ -1316,6 +1394,15 @@ document.addEventListener("input", e => {
 });
 document.addEventListener("change", e => {
   if (e.target.name === "dk" || e.target.id === "dorder" || e.target.classList.contains("dpick")) updateImpact();
+  if (e.target.dataset.budget) {
+    const b = state.budget = state.budget || {}, v = e.target.value, kind = e.target.dataset.budget;
+    if (kind === "by") b.by = v;
+    if (kind === "to") b.to = v;
+    if (kind === "date" && v) b.to = "date:" + v;
+    save(); render();
+    if (kind === "to" && v === "pick") { const d = $(".bdate"); if (d) { d.focus(); try { d.showPicker(); } catch (err) { /* not supported */ } } }
+    return;
+  }
   if (e.target.id === "strict") { state.strict = e.target.checked; save(); renderHeader(); }
   if (e.target.id === "remTime" && e.target.value) { state.remTime = e.target.value; save(); }
   if (e.target.id === "importFile" && e.target.files[0]) {
