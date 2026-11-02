@@ -1,7 +1,7 @@
 "use strict";
 
 const KEY = "attendance.v3";
-const APP_VERSION = "1.27.0"; // semver: new feature → minor, fix → patch; keep in step with CACHE in sw.js
+const APP_VERSION = "1.27.1"; // semver: new feature → minor, fix → patch; keep in step with CACHE in sw.js
 const WD = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const MONTH_FULL = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -536,7 +536,7 @@ function daySummary(day, today) {
     <div class="ds-mid">
       <small>${future ? "Projected by this day" : day === today ? "Overall today" : "Overall up to this day"}</small>
       <b data-roll="day" data-v="${o.exact}">${fmtx(o.exact)}</b>
-      ${day === today ? "" : `<span>${future ? "attending all but your planned absences" : `${o.A} of ${o.T} classes attended`}</span>`}
+      <span>${future ? "attending all but your planned absences" : `${o.A}/${o.T} classes attended`}</span>
     </div>
     ${chip}
     ${zoomScale(future ? a : null, b)}
