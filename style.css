@@ -117,9 +117,14 @@ h2 { font: 650 18px/1.25 var(--display); margin: 28px 0 10px; letter-spacing: -.
 @media (hover: hover) { .sky-b:hover .sky-f { filter: brightness(1.06); } }
 @keyframes rise { from { height: 0; } }
 
-/* Off the Today tab the skyline shrinks, so the screen's own content comes first. */
-body:not([data-tab="day"]) .sky { --plot: 76px; margin-top: 24px; }
-body:not([data-tab="day"]) .sky-n { padding-bottom: 2px; }
+/* Off the Today tab the header folds into a slim bar: the semester and the overall %,
+   so each screen's own content starts near the top. */
+.top, .overall, .sub, .sky { transition: padding .35s var(--ease-out), font-size .35s var(--ease-out), opacity .25s ease; }
+body:not([data-tab="day"]):not(.setup) .top { padding-bottom: 12px; }
+body:not([data-tab="day"]):not(.setup) .hero-text { grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; }
+body:not([data-tab="day"]):not(.setup) .sem { grid-column: 1; grid-row: 1; margin: 0; font-size: 14px; color: #fff; font-weight: 600; }
+body:not([data-tab="day"]):not(.setup) .overall { grid-column: 2; grid-row: 1; font-size: 28px; }
+body:not([data-tab="day"]):not(.setup) .sub, body:not([data-tab="day"]):not(.setup) .sky { display: none; }
 
 /* ---------- layout ---------- */
 main { max-width: 1168px; margin: 0 auto; padding: 16px; }
@@ -518,7 +523,7 @@ ul.hist { margin: 6px 0 0; padding-left: 18px; font-size: 13.5px; color: var(--m
 @media (min-width: 1000px) {
   #tab-day.active { display: grid; grid-template-columns: minmax(0, 1fr) 400px; column-gap: 32px; align-items: start; }
   body.setup #tab-day.active { display: block; }
-  .dayright > h2 { margin-top: 0; }
+  .dayright > :first-child { margin-top: 0; }
 }
 
 /* ---------- skip budget (Today) ---------- */
@@ -574,3 +579,48 @@ ul.hist { margin: 6px 0 0; padding-left: 18px; font-size: 13.5px; color: var(--m
 .card.dealt { animation: deal .5s var(--ease-out) both; }
 @keyframes deal { from { opacity: 0; transform: translateY(18px); } }
 @media (prefers-reduced-motion: reduce) { .seg-pill, .tabs::before, .toast { transition: none; } .toast.show .tbar { animation: none; } }
+
+/* ---------- Today: attention panel, quiet sources, mark-all row, subject rows ---------- */
+.attn { margin-bottom: 14px; border-radius: var(--r); background: var(--panel); border: 1px solid var(--line); overflow: hidden; }
+.attn-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; font-size: 14px; }
+.attn-row + .attn-row { border-top: 1px solid var(--line); }
+.attn-row i { flex-shrink: 0; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+.attn-row.bad i { background: var(--bad); }
+.attn-row.warn i { background: var(--warn); }
+.attn-row p { flex: 1; margin: 0; min-width: 0; }
+.attn-row b { font-weight: 700; margin-right: 4px; }
+.attn-row.bad b { color: var(--bad); }
+.attn-row.warn b { color: var(--warn); }
+.attn-row .inline { flex-shrink: 0; padding: 5px 12px; }
+
+.src { display: inline; margin-left: 4px; font-size: 12.5px; color: var(--muted); }
+.src::before { content: "· "; }
+
+.markall { display: flex; align-items: center; gap: 2px; padding: 6px 8px 6px 14px; border-top: 1px solid var(--line); background: var(--panel-2); }
+.markall span { flex: 1; font-size: 13px; font-weight: 600; color: var(--muted); }
+.markall button { border: 0; background: transparent; color: var(--accent); font-size: 13.5px; font-weight: 650; padding: 10px; border-radius: 9px; }
+.markall button[data-all="A"] { color: var(--bad); }
+.markall button[data-all=""] { color: var(--muted); }
+@media (hover: hover) { .markall button:hover { background: var(--panel); } }
+
+.srows { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
+.srow {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "name pct" "meter meter" "note note";
+  gap: 6px 12px; width: 100%; padding: 12px 14px; border: 0; background: transparent; text-align: left; border-radius: 0;
+}
+.srow + .srow { border-top: 1px solid var(--line); }
+.srow:active { transform: none; background: var(--panel-2); }
+@media (hover: hover) { .srow:hover { background: var(--panel-2); } }
+.sname { grid-area: name; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.spct { grid-area: pct; font: 700 18px/1.2 var(--display); letter-spacing: -.01em; color: var(--tone); }
+.smeter { grid-area: meter; position: relative; height: 5px; border-radius: 3px; background: color-mix(in srgb, var(--text) 10%, transparent); }
+.smeter i { position: absolute; inset: 0 auto 0 0; border-radius: 3px; background: var(--tone); transition: width .6s var(--ease-out); }
+.smeter::after { content: ""; position: absolute; left: 50%; top: -3px; bottom: -3px; width: 2px; border-radius: 1px; background: var(--text); opacity: .45; }
+.srow small { grid-area: note; margin-top: -2px; font-size: 13px; }
+.srow.tone-good small { color: var(--muted); }
+.srow.tone-warn small { color: var(--warn); font-weight: 600; }
+.srow.tone-bad small { color: var(--bad); font-weight: 600; }
+.srow.flash { animation: rowflash 1.1s var(--ease-out); }
+@keyframes rowflash { from { background: var(--accent-soft); } }
+.dayright > .budget { margin-top: 22px; }
+@media (min-width: 1000px) { .dayright > .budget:first-child { margin-top: 0; } }

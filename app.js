@@ -1,7 +1,7 @@
 "use strict";
 
 const KEY = "attendance.v3";
-const APP_VERSION = "1.32.0"; // semver: new feature → minor, fix → patch; keep in step with CACHE in sw.js
+const APP_VERSION = "1.33.0"; // semver: new feature → minor, fix → patch; keep in step with CACHE in sw.js
 const WD = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const MONTH_FULL = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -205,11 +205,17 @@ function verdict(c, s) {
     return { tone: "bad", text: `Ends below ${MIN}% (${fmt(s.finalPct)})`, sub: s.FA ? "Undo some planned absences to fix this" : "Even if you attend everything left" };
   }
   const n = Math.floor(s.canSkip / c.perSession), need = Math.ceil(s.need / c.perSession);
-  const now = ok(s.A, s.T) ? "" : ` · Below ${MIN}% now: attend the next ${need} ${plural(c, need)}`;
+  // Below 75% right now: getting back above it is the first job, the sem-end room comes after.
+  if (s.T && !ok(s.A, s.T)) {
+    return {
+      tone: "bad", text: `Below ${MIN}% now: attend the next ${need} ${plural(c, need)}`,
+      sub: `After that you can skip ${n} more · Ends at ${fmt(s.finalPct)} if you attend the rest`,
+    };
+  }
   return {
     tone: n === 0 ? "warn" : "good",
     text: n === 0 ? `Can't skip any more ${plural(c, 2)}` : `Can skip ${n} more ${plural(c, n)}`,
-    sub: (s.left || s.FA ? `Ends at ${fmt(s.finalPct)} if you attend the rest` : "No classes left") + now,
+    sub: (s.left || s.FA ? `Ends at ${fmt(s.finalPct)} if you attend the rest` : "No classes left"),
   };
 }
 // How many classes you can still miss before the next exam and stay at 75% on that day.
@@ -312,6 +318,21 @@ function examLine(c) {
   const text = r.n < 0 ? `you'd be at ${fmt(r.pct)}, attend all` : !r.F ? "no classes left before it"
     : `can skip ${Math.floor(r.n / u)} of ${Math.round(r.F / u)} ${plural(c, Math.round(r.F / u))}`;
   return `<div class="exam ${r.n < 0 ? "bad" : ""}">Before ${e.label} (${shortDate(e.start)}): ${text}</div>`;
+}
+
+// Today's subject list: two-line rows with a meter against the 75% line (full cards live on Subjects).
+function subjRowsHtml() {
+  const list = M.courses.map(c => ({ c, s: stats(c) }))
+    .sort((a, b) => (a.s.exact === null ? 101 : a.s.exact) - (b.s.exact === null ? 101 : b.s.exact));
+  return `<div class="srows">${list.map(({ c, s }) => {
+    const v = verdict(c, s), w = s.exact === null ? 0 : Math.max(0, Math.min(100, (s.exact - 50) * 2));
+    return `<button class="srow tone-${v.tone}${flashIds.includes(c.key) ? " flash" : ""}" data-course="${esc(c.key)}">
+      <span class="sname">${esc(c.name)}${crown(s)}</span>
+      <span class="spct" data-roll="pct-${esc(c.key)}" data-v="${s.exact}">${fmt(s.pct)}</span>
+      <span class="smeter" aria-hidden="true"><i style="width:${w.toFixed(1)}%"></i></span>
+      <small>${v.text}</small>
+    </button>`;
+  }).join("")}</div>`;
 }
 
 // One line about planned future absences, shown apart from the current %.
@@ -479,7 +500,7 @@ function renderHeader() {
     `<span>${risky ? `<span class="risk">${risky} ${risky === 1 ? "subject" : "subjects"} at the limit</span>` : "All subjects safe"}</span>` +
     `<span><b>${fmtx(o.end)}</b> by sem end ${o.planned ? "with your plans" : "if you attend the rest"}</span>`;
   morph($("#sky"), skyHtml());
-  const n = editsList().length + Object.keys(state.calEdits || {}).length, b = document.querySelector('[data-tab="log"] span');
+  const n = editsList().length + Object.keys(state.calEdits || {}).length, b = document.querySelector('nav.tabs [data-tab="log"] span');
   if (b) b.innerHTML = `Changes${n ? `<i class="badge">${n}</i>` : ""}`;
 }
 
@@ -543,8 +564,8 @@ function sourceTag(c, k) {
   const e = state.edits[editKey(c, k)];
   if (e && k.portal && e !== k.portal) return `<span class="tag edit">edited · portal: ${STATUS[k.portal] || k.portal}</span>`;
   if (e) return `<span class="tag edit">your mark</span>`;
-  if (k.portal) return `<span class="tag">portal</span>`;
-  return k.date <= todayIso() ? `<span class="tag none">not on portal yet</span>` : "";
+  if (k.portal) return `<span class="src">from portal</span>`;
+  return k.date <= todayIso() ? `<span class="src">not on portal yet</span>` : "";
 }
 
 function renderDay() {
@@ -581,12 +602,7 @@ function renderDay() {
           ${statusButtons(c, k)}
         </div>`;
     }
-    h += `</div>
-      <div class="quick">
-        <button data-all="P">All present</button>
-        <button data-all="A">All absent</button>
-        <button data-all="">Clear my marks</button>
-      </div>`;
+    h += `<div class="markall"><span>Mark all</span><button data-all="P">Present</button><button data-all="A">Absent</button><button data-all="">Clear mine</button></div></div>`;
   } else {
     const next = classDayFrom(sel, 1), prev = next ? null : classDayFrom(sel, -1), to = next || prev;
     h += `<div class="empty"><p>${info && /holiday/i.test(info.type) ? "Holiday, no classes" : "No classes"}</p>${to
@@ -595,7 +611,7 @@ function renderDay() {
   if (info && info.own) h += `<div class="alert warn">You changed this day yourself (the portal had: ${esc(info.was ? info.was.type : "nothing")}). Undo it in Changes.</div>`;
   if (info && sel <= M.lastTheory) h += `<button class="link" data-act="dayEdit">Emergency change: holiday, half day, cancelled classes or extra working day…</button>`;
 
-  h += `</div>${installHtml()}</div><div class="dayright"><h2>Subjects</h2>${cardsHtml()}</div>`;
+  h += `</div>${installHtml()}</div><div class="dayright"><h2>Subjects</h2>${subjRowsHtml()}</div>`;
   morph($("#tab-day"), h);
   placeStrip();
   flashIds = [];
@@ -734,11 +750,12 @@ function alertsHtml() {
       if (k.date <= today && statusOf(c, k) === null) { unmarked++; if (!first || k.date < first) first = k.date; }
     }
   }
-  let h = "";
-  if (bad.length) h += `<div class="alert bad"><b>Below ${MIN}% risk:</b> ${bad.map(esc).join(", ")}. Attend every class.</div>`;
-  if (edge.length) h += `<div class="alert warn"><b>At the limit:</b> ${edge.map(esc).join(", ")}. Don't skip any more.</div>`;
-  if (unmarked && first !== sel) h += `<div class="alert info">${unmarked} past ${unmarked === 1 ? "class isn't" : "classes aren't"} marked yet. <button class="inline" data-date="${first}">Mark them</button></div>`;
-  return h;
+  // One panel, one row per thing that needs you, each with its way out.
+  const rows = [];
+  if (bad.length) rows.push(`<div class="attn-row bad"><i></i><p><b>Below ${MIN}% risk</b> ${bad.map(esc).join(", ")}. Attend every class.</p></div>`);
+  if (edge.length) rows.push(`<div class="attn-row warn"><i></i><p><b>At the limit</b> ${edge.map(esc).join(", ")}. Don't skip any more.</p></div>`);
+  if (unmarked && first !== sel) rows.push(`<div class="attn-row info"><i></i><p>${unmarked} past ${unmarked === 1 ? "class isn't" : "classes aren't"} marked yet.</p><button class="inline" data-date="${first}">Mark them</button></div>`);
+  return rows.length ? `<div class="attn">${rows.join("")}</div>` : "";
 }
 
 function summaryText() {
