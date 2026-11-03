@@ -1,7 +1,7 @@
 "use strict";
 
 const KEY = "attendance.v3";
-const APP_VERSION = "1.33.0"; // semver: new feature → minor, fix → patch; keep in step with CACHE in sw.js
+const APP_VERSION = "1.34.0"; // semver: new feature → minor, fix → patch; keep in step with CACHE in sw.js
 const WD = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const MONTH_FULL = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -320,17 +320,20 @@ function examLine(c) {
   return `<div class="exam ${r.n < 0 ? "bad" : ""}">Before ${e.label} (${shortDate(e.start)}): ${text}</div>`;
 }
 
-// Today's subject list: two-line rows with a meter against the 75% line (full cards live on Subjects).
+// Today's subjects as tiles: the % (coloured only when at risk) and one pip per class you
+// can still skip, so the room left reads at a glance. Full cards live on the Subjects tab.
 function subjRowsHtml() {
   const list = M.courses.map(c => ({ c, s: stats(c) }))
     .sort((a, b) => (a.s.exact === null ? 101 : a.s.exact) - (b.s.exact === null ? 101 : b.s.exact));
-  return `<div class="srows">${list.map(({ c, s }) => {
-    const v = verdict(c, s), w = s.exact === null ? 0 : Math.max(0, Math.min(100, (s.exact - 50) * 2));
-    return `<button class="srow tone-${v.tone}${flashIds.includes(c.key) ? " flash" : ""}" data-course="${esc(c.key)}">
-      <span class="sname">${esc(c.name)}${crown(s)}</span>
-      <span class="spct" data-roll="pct-${esc(c.key)}" data-v="${s.exact}">${fmt(s.pct)}</span>
-      <span class="smeter" aria-hidden="true"><i style="width:${w.toFixed(1)}%"></i></span>
-      <small>${v.text}</small>
+  return `<div class="stiles">${list.map(({ c, s }) => {
+    const v = verdict(c, s), u = c.perSession, n = Math.max(0, Math.floor(s.canSkip / u)), unit = plural(c, n);
+    const below = s.T && !ok(s.A, s.T), need = Math.ceil(s.need / u);
+    const note = below ? `Attend the next ${need}` : s.canSkip < 0 ? `Ends below ${MIN}%` : n ? `${n} ${unit} to skip` : !s.F ? "No classes left" : "No skips left";
+    const pips = n && !below ? `<span class="pips" aria-hidden="true">${"<i></i>".repeat(Math.min(n, 12))}${n > 12 ? "<em>+</em>" : ""}</span>` : "";
+    return `<button class="stile tone-${v.tone}${flashIds.includes(c.key) ? " flash" : ""}" data-course="${esc(c.key)}" aria-label="${esc(c.name)}: ${fmt(s.pct)}, ${note}">
+      <span class="tname">${esc(c.name)}${crown(s)}</span>
+      <span class="tpct" data-roll="pct-${esc(c.key)}" data-v="${s.exact}">${fmt(s.pct)}</span>
+      ${pips}<small>${note}</small>
     </button>`;
   }).join("")}</div>`;
 }
@@ -576,7 +579,8 @@ function renderDay() {
   for (const c of M.courses) for (const k of c.classes) if (k.date === sel) sessions.push({ c, k });
   sessions.sort((a, b) => a.k.time.localeCompare(b.k.time));
 
-  let h = `<div class="dayleft">` + alertsHtml() + budgetHtml() + weekStrip() + `<div class="daybody">
+  const wide = matchMedia("(min-width: 1000px)").matches;
+  let h = `<div class="dayleft">` + alertsHtml() + (wide ? "" : budgetHtml()) + weekStrip() + `<div class="daybody">
     <div class="daynav">
       <div class="date"><b>${sel === today ? "Today · " : ""}${nice(sel)}</b><small>${esc(label)}</small></div>
       ${sel !== today ? `<button class="chip" data-act="today">Today</button>` : ""}
@@ -611,7 +615,7 @@ function renderDay() {
   if (info && info.own) h += `<div class="alert warn">You changed this day yourself (the portal had: ${esc(info.was ? info.was.type : "nothing")}). Undo it in Changes.</div>`;
   if (info && sel <= M.lastTheory) h += `<button class="link" data-act="dayEdit">Emergency change: holiday, half day, cancelled classes or extra working day…</button>`;
 
-  h += `</div>${installHtml()}</div><div class="dayright"><h2>Subjects</h2>${subjRowsHtml()}</div>`;
+  h += `</div>${installHtml()}</div><div class="dayright">${wide ? budgetHtml() : ""}<h2>Subjects</h2>${subjRowsHtml()}</div>`;
   morph($("#tab-day"), h);
   placeStrip();
   flashIds = [];
@@ -1676,6 +1680,9 @@ document.addEventListener("pointerup", () => {
 });
 // A drag shouldn't also count as tapping the day under the pointer.
 document.addEventListener("click", e => { if (stripDragged && e.target.closest(".week")) { e.stopPropagation(); e.preventDefault(); } }, true);
+
+// The skip budget changes column at the laptop width: redraw when the window crosses it.
+matchMedia("(min-width: 1000px)").addEventListener("change", () => { if (M && tab === "day") render(); });
 
 // Roll over to the new day if the app stays open past midnight.
 let lastToday = todayIso();
