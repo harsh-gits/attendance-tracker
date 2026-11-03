@@ -1,7 +1,7 @@
 "use strict";
 
 const KEY = "attendance.v3";
-const APP_VERSION = "1.28.0"; // semver: new feature → minor, fix → patch; keep in step with CACHE in sw.js
+const APP_VERSION = "1.29.0"; // semver: new feature → minor, fix → patch; keep in step with CACHE in sw.js
 const WD = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const MONTH_FULL = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -677,13 +677,13 @@ function stripInfo() {
   const days = [...el.children].slice(i, i + 7).map(b => b.dataset.date);
   return { el, step, days };
 }
-function placeStrip() {
+function placeStrip(smooth) {
   const s = stripInfo();
   if (!s) return;
   if (stripLeft !== null) s.el.scrollLeft = stripLeft;
   if (!stripInfo().days.includes(sel)) {
     const i = [...s.el.children].findIndex(b => b.dataset.date === mondayOf(sel));
-    s.el.scrollLeft = Math.max(0, i) * s.step;
+    s.el.scrollTo({ left: Math.max(0, i) * s.step, behavior: smooth && !calm() ? "smooth" : "auto" });
   }
   stripLeft = s.el.scrollLeft;
 }
@@ -1414,19 +1414,61 @@ document.addEventListener("change", e => {
   }
 });
 
-// Swipe left / right on the Today tab to change day.
+// Swipe left / right on the Today tab: the day follows your finger, then slides to the
+// next (or previous) day you have classes on, skipping holidays, weekends and exams.
+function classDayFrom(d, dir) {
+  const days = new Set();
+  for (const c of M.courses) for (const k of c.classes) days.add(k.date);
+  const list = [...days].sort();
+  return dir > 0 ? list.find(x => x > d) : list.reverse().find(x => x < d);
+}
 let touch = null;
 document.addEventListener("touchstart", e => {
-  if (tab !== "day" || !M || e.touches.length !== 1 || e.target.closest(".seg, .week, input, textarea, .sheet")) { touch = null; return; }
-  touch = { x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now() };
+  if (tab !== "day" || !M || e.touches.length !== 1 || e.target.closest(".seg, .week, .budget, input, select, textarea, .sheet")) { touch = null; return; }
+  touch = { x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now(), on: false, dx: 0 };
 }, { passive: true });
-document.addEventListener("touchend", e => {
+document.addEventListener("touchmove", e => {
   if (!touch) return;
-  const dx = e.changedTouches[0].clientX - touch.x, dy = e.changedTouches[0].clientY - touch.y;
-  if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.6 && Date.now() - touch.t < 600) {
-    moveTo(addDays(sel, dx < 0 ? 1 : -1));
+  const dx = e.touches[0].clientX - touch.x, dy = e.touches[0].clientY - touch.y;
+  if (!touch.on) {
+    if (Math.abs(dy) > 12 && Math.abs(dy) > Math.abs(dx)) { touch = null; return; } // scrolling the page
+    if (Math.abs(dx) < 12) return;
+    touch.on = true;
+    touch.el = $(".daybody");
+    touch.next = classDayFrom(sel, dx < 0 ? 1 : -1);
+    if (touch.el) touch.el.style.transition = "none";
   }
+  touch.dx = dx;
+  if (!touch.el || calm()) return;
+  // Rubber-band when there's no class day that way.
+  const pull = (dx < 0 ? 1 : -1) === (touch.next ? (touch.next > sel ? 1 : -1) : 0) ? dx : dx / 4;
+  touch.el.style.transform = `translateX(${pull}px)`;
+  touch.el.style.opacity = String(1 - Math.min(.35, Math.abs(pull) / innerWidth));
+}, { passive: true });
+document.addEventListener("touchend", () => {
+  if (!touch) return;
+  const { el, dx, t, on } = touch;
   touch = null;
+  if (!on) return;
+  const dir = dx < 0 ? 1 : -1, next = classDayFrom(sel, dir);
+  const flip = next && (Math.abs(dx) > innerWidth * .28 || (Math.abs(dx) > 40 && Math.abs(dx) / (Date.now() - t) > .35));
+  if (!el || calm()) { if (flip) { sel = next; render(); } return; }
+  el.style.transition = "transform .18s ease-out, opacity .18s";
+  if (!flip) { el.style.transform = ""; el.style.opacity = ""; return; }
+  buzz(8);
+  el.style.transform = `translateX(${-dir * innerWidth * .6}px)`;
+  el.style.opacity = "0";
+  setTimeout(() => {
+    sel = next; render(); placeStrip(true);
+    const nb = $(".daybody");
+    if (!nb) return;
+    nb.style.transition = "none";
+    nb.style.transform = `translateX(${dir * innerWidth * .35}px)`;
+    nb.style.opacity = "0";
+    nb.getBoundingClientRect();
+    nb.style.transition = "transform .32s cubic-bezier(.2, .9, .25, 1), opacity .25s";
+    nb.style.transform = ""; nb.style.opacity = "";
+  }, 170);
 }, { passive: true });
 
 // When the strip stops scrolling and the selected day has gone out of view, pick
