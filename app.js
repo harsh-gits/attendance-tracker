@@ -1,7 +1,7 @@
 "use strict";
 
 const KEY = "attendance.v3";
-const APP_VERSION = "1.31.0"; // semver: new feature → minor, fix → patch; keep in step with CACHE in sw.js
+const APP_VERSION = "1.32.0"; // semver: new feature → minor, fix → patch; keep in step with CACHE in sw.js
 const WD = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const MONTH_FULL = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -446,7 +446,9 @@ function render() {
   document.body.dataset.tab = tab;
   renderHeader();
   document.querySelectorAll(".tab").forEach(el => el.classList.toggle("active", el.id === "tab-" + tab));
-  document.querySelectorAll("nav.tabs button").forEach(b => {
+  const navBtns = [...document.querySelectorAll("nav.tabs button")];
+  $("nav.tabs").style.setProperty("--i", Math.max(0, navBtns.findIndex(b => b.dataset.tab === tab)));
+  navBtns.forEach(b => {
     b.classList.toggle("on", b.dataset.tab === tab);
     if (b.dataset.tab === tab) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current");
   });
@@ -532,7 +534,8 @@ function importHtml(first) {
 
 function statusButtons(c, k) {
   const st = statusOf(c, k);
-  return `<div class="seg" data-key="${esc(c.key)}" data-date="${k.date}" data-slot="${esc(k.slot)}">` +
+  const at = ["P", "A", "OD", "C"].indexOf(st);
+  return `<div class="seg" data-key="${esc(c.key)}" data-date="${k.date}" data-slot="${esc(k.slot)}" data-on="${st || ""}" style="--i:${Math.max(at, 0)}"><i class="seg-pill" aria-hidden="true"></i>` +
     ["P", "A", "OD", "C"].map(s => `<button data-st="${s}" class="${st === s ? "on" : ""}" title="${STATUS[s]}" aria-label="${STATUS[s]}" aria-pressed="${st === s}">${s === "C" ? "Off" : s}</button>`).join("") +
     `</div>`;
 }
@@ -783,7 +786,7 @@ function cardsHtml() {
     h += `
       <button class="card tone-${v.tone}${flashIds.includes(c.key) ? " flash" : ""}" data-course="${esc(c.key)}">
         <div class="row">
-          <div><b>${esc(c.name)}</b><small>${esc(c.code)} · ${esc(c.slot)} · ${s.A}/${s.T} · exact ${fmtx(s.exact)}</small></div>
+          <div><b>${esc(c.name)}${crown(s)}</b><small>${esc(c.code)} · ${esc(c.slot)} · ${s.A}/${s.T} · exact ${fmtx(s.exact)}</small></div>
           <div class="pct" data-roll="pct-${esc(c.key)}" data-v="${s.exact}">${fmt(s.pct)}</div>
         </div>
         ${spark(c)}
@@ -804,7 +807,7 @@ function renderSubjects() {
     <button class="link left" data-act="back">‹ All subjects</button>
     <div class="card tone-${v.tone} static">
       <div class="row">
-        <div><b>${esc(c.name)}</b><small>${esc(c.code)} · ${esc(c.type || "")} · ${esc(c.slot)}</small></div>
+        <div><b>${esc(c.name)}${crown(s)}</b><small>${esc(c.code)} · ${esc(c.type || "")} · ${esc(c.slot)}</small></div>
         <div class="pct" data-roll="pct-${esc(c.key)}" data-v="${s.exact}">${fmt(s.pct)}</div>
       </div>
       <div class="verdict">${v.text}</div>
@@ -1045,7 +1048,7 @@ function openDaySheet() {
       <label class="opt"><input type="radio" name="dk" value="pick"> Only these classes were cancelled:</label>
       <div class="picks">${sheetClasses.map((x, i) => `<label class="pick"><input type="checkbox" class="dpick" value="${i}" ${statusOf(x.c, x.k) === "C" ? "checked" : ""}> ${x.k.time || ""} · ${esc(x.c.name)}</label>`).join("")}</div>` : "";
   $("#sheet").innerHTML = `
-    <div class="sheetbox" role="dialog" aria-modal="true">
+    <div class="sheetbox" role="dialog" aria-modal="true"><div class="grab" aria-hidden="true"></div>
       <h3>Change ${nice(sel)}</h3>
       <p class="note">Right now: <b>${esc(info.type)}</b>${info.detail ? " · " + esc(info.detail.replace(/^\(|\)$/g, "")) : ""}</p>
       <label class="opt"><input type="radio" name="dk" value="hol" checked> Full day: holiday, no classes</label>${partial}
@@ -1245,12 +1248,130 @@ function confetti() {
 
 // ---------- events ----------
 let toastTimer;
+const crown = s => s.T && s.A === s.T
+  ? `<svg class="crown" viewBox="0 0 24 18" aria-label="Never missed a class"><title>Never missed a class</title><path d="M2 6l5 4 5-8 5 8 5-4-2 11H4z"/></svg>` : "";
+
+// Drag the sheet down by its top to close it.
+let sheetDrag = null;
+document.addEventListener("touchstart", e => {
+  const box = e.target.closest(".sheetbox");
+  if (!box || (box.scrollTop > 0 && !e.target.closest(".grab")) || e.target.closest("input, textarea, select, label")) { sheetDrag = null; return; }
+  sheetDrag = { box, y: e.touches[0].clientY, t: Date.now(), dy: 0, on: false };
+}, { passive: true });
+document.addEventListener("touchmove", e => {
+  if (!sheetDrag) return;
+  const dy = e.touches[0].clientY - sheetDrag.y;
+  if (!sheetDrag.on) { if (dy < 8) { if (dy < -8) sheetDrag = null; return; } sheetDrag.on = true; sheetDrag.box.style.transition = "none"; }
+  sheetDrag.dy = Math.max(0, dy);
+  sheetDrag.box.style.transform = `translateY(${sheetDrag.dy}px)`;
+  $("#sheet").style.background = `rgba(0, 0, 0, ${.55 * (1 - Math.min(1, sheetDrag.dy / sheetDrag.box.offsetHeight))})`;
+}, { passive: true });
+document.addEventListener("touchend", () => {
+  if (!sheetDrag) return;
+  const { box, dy, t, on } = sheetDrag;
+  sheetDrag = null;
+  if (!on) return;
+  const close = dy > Math.min(160, box.offsetHeight * .3) || (dy > 40 && dy / (Date.now() - t) > .5);
+  box.style.transition = "transform .24s var(--ease-out)";
+  $("#sheet").style.transition = "background .24s";
+  if (!close) { box.style.transform = ""; $("#sheet").style.background = ""; return; }
+  box.style.transform = "translateY(100%)";
+  $("#sheet").style.background = "rgba(0, 0, 0, 0)";
+  setTimeout(() => { $("#sheet").hidden = true; box.style.transform = ""; box.style.transition = ""; $("#sheet").style.background = ""; $("#sheet").style.transition = ""; }, 240);
+}, { passive: true });
+
+// Seven quick taps on the big %.
+let tapN = 0, tapT = 0;
+document.addEventListener("click", e => {
+  if (!M || !e.target.closest("#overall")) return;
+  const now = Date.now();
+  tapN = now - tapT < 600 ? tapN + 1 : 1;
+  tapT = now;
+  if (tapN < 7) return;
+  tapN = 0;
+  let missed = 0, total = 0, worst = null, worstA = 0;
+  for (const c of M.courses) {
+    let a = 0;
+    for (const k of c.classes) {
+      const st = statusOf(c, k);
+      if (k.date > todayIso() || st === null || st === "C") continue;
+      total += k.units;
+      if (st === "A") { missed += k.units; a += k.units; }
+    }
+    if (a > worstA) { worstA = a; worst = c; }
+  }
+  const mins = missed * 50, hrs = Math.floor(mins / 60);
+  buzz([10, 30, 10, 30, 60]);
+  toast(missed
+    ? `<b>Bunk-o-meter</b><br>${missed} classes skipped · about ${hrs}h ${mins % 60}m of sleep gained 😴<br>Favourite one to skip: ${esc(worst.name)} (${worstA})<br>${missed / total > .2 ? "Living on the edge." : missed / total > .1 ? "Calculated risks only." : "Barely a rebel."}`
+    : `<b>Bunk-o-meter</b><br>0 classes skipped. Are you even real? 🫡`);
+});
+
+// The semester's last class day: a small send-off, once per visit.
+function sendOff() {
+  if (!M) return;
+  const last = [M.lastTheory, M.lastLab].sort()[1];
+  try { if (todayIso() !== last || sessionStorage.getItem("sentOff")) return; sessionStorage.setItem("sentOff", "1"); } catch (e) { return; }
+  const o = overall(todayIso()), el = document.createElement("div");
+  el.className = "sendoff";
+  el.innerHTML = `<div><span>🎓</span><b>Semester survived</b><p>Last class day. You finished at ${fmtx(o.exact)}.</p><small>Tap anywhere</small></div>`;
+  el.addEventListener("click", () => { el.classList.add("out"); setTimeout(() => el.remove(), 300); });
+  document.body.appendChild(el);
+  confetti();
+  setTimeout(confetti, 700);
+}
+
+// Longer messages stay longer; a thin bar drains to show how long. Swipe it away.
 function toast(msg) {
-  const t = $("#toast");
-  t.innerHTML = msg;
+  const t = $("#toast"), ms = Math.min(7000, 2600 + msg.replace(/<[^>]+>/g, "").length * 22);
+  t.innerHTML = `${msg}<i class="tbar" style="animation-duration:${ms}ms"></i>`;
+  t.style.transform = ""; t.style.opacity = "";
   t.classList.add("show");
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.classList.remove("show"), 3500);
+  toastTimer = setTimeout(() => t.classList.remove("show"), ms);
+}
+let toastDrag = null;
+document.addEventListener("touchstart", e => {
+  const t = e.target.closest("#toast.show");
+  toastDrag = t ? { t, x: e.touches[0].clientX, dx: 0 } : null;
+}, { passive: true });
+document.addEventListener("touchmove", e => {
+  if (!toastDrag) return;
+  toastDrag.dx = e.touches[0].clientX - toastDrag.x;
+  toastDrag.t.style.transition = "none";
+  toastDrag.t.style.transform = `translateX(${toastDrag.dx}px)`;
+  toastDrag.t.style.opacity = String(1 - Math.min(1, Math.abs(toastDrag.dx) / 220));
+}, { passive: true });
+document.addEventListener("touchend", () => {
+  if (!toastDrag) return;
+  const { t, dx } = toastDrag;
+  toastDrag = null;
+  t.style.transition = "";
+  if (Math.abs(dx) > 80) {
+    clearTimeout(toastTimer);
+    t.style.transform = `translateX(${dx > 0 ? 120 : -120}%)`; t.style.opacity = "0";
+    setTimeout(() => { t.classList.remove("show"); t.style.transform = ""; t.style.opacity = ""; }, 220);
+  } else { t.style.transform = ""; t.style.opacity = ""; }
+}, { passive: true });
+
+// Cards arrive one after another when a tab opens (not on every update).
+function deal(root) {
+  if (!root || calm()) return;
+  root.querySelectorAll(".card").forEach((el, i) => {
+    if (i > 9) return;
+    el.style.animationDelay = `${i * 60}ms`;
+    el.classList.add("dealt");
+    el.addEventListener("animationend", () => { el.classList.remove("dealt"); el.style.animationDelay = ""; }, { once: true });
+  });
+}
+
+// Copy buttons say "Copied" for a moment.
+function copied(btn) {
+  if (!btn || btn.classList.contains("copied")) return;
+  const was = btn.innerHTML;
+  btn.classList.add("copied");
+  btn.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>Copied`;
+  setTimeout(() => { btn.classList.remove("copied"); btn.innerHTML = was; }, 1400);
 }
 
 // updates: [[course, classItem, status|null]]
@@ -1309,7 +1430,7 @@ document.addEventListener("click", e => {
   if (!t) return;
   if (t.dataset.tab) {
     if (t.dataset.tab === tab && !(tab === "subj" && openCourse)) { window.scrollTo({ top: 0, behavior: "smooth" }); return; }
-    go(() => { tab = t.dataset.tab; if (tab === "subj") openCourse = null; render(); window.scrollTo(0, 0); }, "fade");
+    go(() => { tab = t.dataset.tab; if (tab === "subj") openCourse = null; render(); window.scrollTo(0, 0); deal($("#tab-" + tab)); }, "fade");
     return;
   }
   if (t.dataset.st) {
@@ -1367,7 +1488,7 @@ document.addEventListener("click", e => {
   if (act === "hideInstall") { try { localStorage.setItem("installHidden", "1"); } catch (e) { /* ignore */ } render(); }
   if (act === "back") go(() => { openCourse = null; render(); }, "prev");
   if (act === "copyBm") {
-    copyText(phoneBookmark).then(() => toast(`Bookmark copied (${phoneBookmark.length} characters). Paste it as the bookmark's address.`), () => toast("Couldn't copy."));
+    copyText(phoneBookmark).then(() => copied(t) || toast(`Bookmark copied (${phoneBookmark.length} characters). Paste it as the bookmark's address.`), () => toast("Couldn't copy."));
   }
   if (act === "paste" || act === "pasteClip") {
     const got = act === "paste" ? Promise.resolve($("#paste").value) : navigator.clipboard.readText();
@@ -1380,7 +1501,7 @@ document.addEventListener("click", e => {
   if (act === "keepMine") { pendingRestore = null; render(); }
   if (act === "copyLink") {
     if (!myLink) { toast("Still preparing your link, try again in a second."); refreshLink(); return; }
-    copyText(myLink).then(() => toast("Your personal link is copied. Save it somewhere safe."), () => toast("Couldn't copy the link."));
+    copyText(myLink).then(() => copied(t) || toast("Your personal link is copied. Save it somewhere safe."), () => toast("Couldn't copy the link."));
   }
   if (act === "shareLink" && myLink) navigator.share({ title: "My attendance", url: myLink }).catch(() => {});
   if (act === "share") {
@@ -1441,7 +1562,7 @@ function classDayFrom(d, dir) {
 }
 let touch = null;
 document.addEventListener("touchstart", e => {
-  if (tab !== "day" || !M || e.touches.length !== 1 || e.target.closest(".seg, .week, .budget, input, select, textarea, .sheet")) { touch = null; return; }
+  if (tab !== "day" || !M || e.touches.length !== 1 || e.target.closest(".seg, .week, .budget, input, select, textarea, .sheet, #toast")) { touch = null; return; }
   touch = { x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now(), on: false, dx: 0 };
 }, { passive: true });
 document.addEventListener("touchmove", e => {
@@ -1546,6 +1667,7 @@ document.addEventListener("visibilitychange", () => {
   const now = todayIso();
   if (now !== lastToday) { if (sel === lastToday) sel = now; lastToday = now; }
   if (M) render();
+  sendOff();
 });
 window.addEventListener("hashchange", () => {
   handleHash().then(r => { if (r) { tab = "day"; render(); reportTake(r); } });
@@ -1597,6 +1719,7 @@ async function start() {
   render();
   if (r) reportTake(r);
   refreshLink();
+  sendOff();
   armBack();
 }
 start();
