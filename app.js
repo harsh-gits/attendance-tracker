@@ -1,7 +1,7 @@
 "use strict";
 
 const KEY = "attendance.v3";
-const APP_VERSION = "1.30.0"; // semver: new feature → minor, fix → patch; keep in step with CACHE in sw.js
+const APP_VERSION = "1.31.0"; // semver: new feature → minor, fix → patch; keep in step with CACHE in sw.js
 const WD = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const MONTH_FULL = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -585,7 +585,9 @@ function renderDay() {
         <button data-all="">Clear my marks</button>
       </div>`;
   } else {
-    h += `<p class="empty">${info && /holiday/i.test(info.type) ? "Holiday, no classes" : "No classes"}</p>`;
+    const next = classDayFrom(sel, 1), prev = next ? null : classDayFrom(sel, -1), to = next || prev;
+    h += `<div class="empty"><p>${info && /holiday/i.test(info.type) ? "Holiday, no classes" : "No classes"}</p>${to
+      ? `<button class="chip" data-date="${to}">${next ? "Next class day" : "Last class day"}: ${nice(to)} ${next ? "›" : "‹"}</button>` : ""}</div>`;
   }
   if (info && info.own) h += `<div class="alert warn">You changed this day yourself (the portal had: ${esc(info.was ? info.was.type : "nothing")}). Undo it in Changes.</div>`;
   if (info && sel <= M.lastTheory) h += `<button class="link" data-act="dayEdit">Emergency change: holiday, half day, cancelled classes or extra working day…</button>`;
@@ -694,15 +696,24 @@ let installEvt = null;
 window.addEventListener("beforeinstallprompt", e => { e.preventDefault(); installEvt = e; if (M && tab === "day") render(); });
 window.addEventListener("appinstalled", () => { installEvt = null; render(); });
 const standalone = () => matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
-function installHtml() {
+// Shown on Today only on your very first visit (and again once a "Later" week is up);
+// "Don't show again" hides it for good. Settings always has the steps.
+function installHtml(inSettings) {
   if (standalone() || location.protocol === "file:") return "";
-  try { if (localStorage.getItem("installHidden") === "1") return ""; } catch (e) { /* ignore */ }
+  if (!inSettings) try {
+    const later = +localStorage.getItem("installLater") || 0;
+    if (localStorage.getItem("installHidden") === "1" || later > Date.now()) return "";
+    if (!later && localStorage.getItem("installSeen") && !sessionStorage.getItem("installFirst")) return "";
+    localStorage.setItem("installSeen", "1");
+    sessionStorage.setItem("installFirst", "1");
+  } catch (e) { /* ignore */ }
   const ios = /iphone|ipad|ipod/i.test(navigator.userAgent), mobile = /android|iphone|ipad|ipod/i.test(navigator.userAgent);
   const how = installEvt ? `<button class="chip solid" data-act="install">Install app</button>`
     : ios ? `<span>Tap <b>Share</b> <span class="ios-share">⬆︎</span> → <b>Add to Home Screen</b>. It also keeps your data safe.</span>`
     : mobile ? `<span>Browser menu → <b>Install app</b> or <b>Add to Home screen</b>.</span>`
     : `<span>Press <b>${/mac/i.test(navigator.platform) ? "⌘" : "Ctrl"}+D</b> to bookmark, or use the install icon in the address bar.</span>`;
-  return `<div class="install"><div class="it"><b>Keep this app one tap away</b>${how}</div><button class="x" data-act="hideInstall" aria-label="Dismiss">✕</button></div>`;
+  const later = inSettings ? "" : `<div class="ilater"><button data-act="installLater">Later</button><button data-act="hideInstall">Don't show again</button></div>`;
+  return `<div class="install"><div class="it"><b>Keep this app one tap away</b>${how}${later}</div></div>`;
 }
 
 function alertsHtml() {
@@ -936,6 +947,8 @@ function renderSettings() {
       <button data-act="copyLink">Copy my link</button>
       ${navigator.share ? `<button data-act="shareLink">Save or send it</button>` : ""}
     </div>
+
+    ${standalone() || location.protocol === "file:" ? "" : `<h2>Install the app</h2>${installHtml(true)}`}
 
     <h2>Daily reminder</h2>
     <p class="note">Adds a reminder to your calendar app to mark attendance on each class day left this semester.</p>
@@ -1349,6 +1362,8 @@ document.addEventListener("click", e => {
   if (act === "prevWeek" || act === "nextWeek") { const x = stripInfo(); if (x) x.el.scrollBy({ left: (act === "nextWeek" ? 7 : -7) * x.step, behavior: calm() ? "auto" : "smooth" }); }
   if (act === "today") moveTo(todayIso());
   if (act === "install" && installEvt) { installEvt.prompt(); installEvt.userChoice.finally(() => { installEvt = null; render(); }); }
+  if (act === "installLater") { try { localStorage.setItem("installLater", String(Date.now() + 7 * 864e5)); } catch (e) { /* ignore */ } toast("Hidden for a week. The steps are also in Settings."); render(); }
+  if (act === "hideInstall") { toast("Won't show again. The steps are in Settings."); }
   if (act === "hideInstall") { try { localStorage.setItem("installHidden", "1"); } catch (e) { /* ignore */ } render(); }
   if (act === "back") go(() => { openCourse = null; render(); }, "prev");
   if (act === "copyBm") {

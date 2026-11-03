@@ -161,6 +161,7 @@ main { max-width: 1168px; margin: 0 auto; padding: 16px; }
 .link.left { margin: 0 0 6px; padding-left: 0; }
 .note { color: var(--muted); font-size: 14px; margin: 10px 0; }
 .empty { text-align: center; padding: 28px 0; color: var(--muted); }
+.empty p { margin: 0 0 12px; }
 .empty.small { padding: 8px 0; font-size: 14px; text-align: left; }
 
 /* ---------- classes of the day: a timetable register ---------- */
@@ -297,7 +298,10 @@ button.card:active { transform: scale(.99); }
 .install { display: flex; gap: 10px; align-items: center; padding: 12px 8px 12px 14px; margin-top: 14px; border-radius: var(--r); background: var(--accent-soft); }
 .install .it { flex: 1; font-size: 13.5px; color: var(--muted); display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
 .install .it b { color: var(--text); font-size: 14.5px; }
-.install .x { border: 0; background: transparent; color: var(--muted); width: 40px; height: 40px; align-self: flex-start; flex-shrink: 0; }
+.ilater { display: flex; gap: 4px; margin: 2px 0 -4px -10px; }
+.ilater button { border: 0; background: transparent; padding: 8px 10px; border-radius: 10px; font-size: 13px; font-weight: 600; line-height: 1; color: var(--accent); }
+.ilater button:focus-visible { outline: 2px solid var(--accent); }
+.tab#tab-set .install { margin-top: 0; }
 .ios-share { display: inline-block; padding: 0 4px; border-radius: 4px; background: var(--panel-2); }
 
 /* ---------- tags, inline buttons ---------- */
