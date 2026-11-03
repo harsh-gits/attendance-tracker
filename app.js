@@ -1,7 +1,7 @@
 "use strict";
 
 const KEY = "attendance.v3";
-const APP_VERSION = "1.29.0"; // semver: new feature → minor, fix → patch; keep in step with CACHE in sw.js
+const APP_VERSION = "1.30.0"; // semver: new feature → minor, fix → patch; keep in step with CACHE in sw.js
 const WD = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const MONTH_FULL = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -457,6 +457,7 @@ function render() {
   if (tab === "log") renderLog();
   if (tab === "set") renderSettings();
   motion();
+  if (M && (tab !== "day" || sel !== todayIso())) rearmBack();
 }
 
 function renderHeader() {
@@ -1043,6 +1044,7 @@ function openDaySheet() {
       <div class="quick"><button data-act="sheetClose">Cancel</button><button class="dangerbtn" data-act="dayApply" id="dapply" disabled>Apply</button></div>
     </div>`;
   $("#sheet").hidden = false;
+  rearmBack();
   $("#sheet").dataset.now = JSON.stringify(nowNames);
   updateImpact();
 }
@@ -1534,6 +1536,34 @@ window.addEventListener("hashchange", () => {
   handleHash().then(r => { if (r) { tab = "day"; render(); reportTake(r); } });
 });
 
+// Back button: step back towards home (close a sheet, leave a subject, go to the Today
+// tab, jump to today); on home it asks for a second press before leaving the app.
+let exitTimer = 0;
+function armBack() {
+  if (!(history.state && history.state.guard)) history.pushState({ guard: 1 }, "");
+}
+// Moved away from home during the 2 s exit window: Back should step back again, not exit.
+function rearmBack() {
+  if (!exitTimer) return;
+  clearTimeout(exitTimer); exitTimer = 0; armBack();
+}
+window.addEventListener("popstate", () => {
+  const today = todayIso();
+  if (!M) return;
+  if (!$("#sheet").hidden) $("#sheet").hidden = true;
+  else if (tab === "subj" && openCourse) go(() => { openCourse = null; render(); }, "prev");
+  else if (tab !== "day") go(() => { tab = "day"; render(); window.scrollTo(0, 0); }, "prev");
+  else if (sel !== today) moveTo(today);
+  else {
+    // Leave the guard off for 2 s: another Back now exits.
+    toast("Press back again to leave");
+    clearTimeout(exitTimer);
+    exitTimer = setTimeout(() => { exitTimer = 0; armBack(); }, 2000);
+    return;
+  }
+  armBack();
+});
+
 async function start() {
   applyTheme();
   if (state.data) M = build(state.data);
@@ -1552,6 +1582,7 @@ async function start() {
   render();
   if (r) reportTake(r);
   refreshLink();
+  armBack();
 }
 start();
 
