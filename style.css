@@ -81,7 +81,7 @@ body {
   overflow-x: hidden;
 }
 button, input, textarea, select { font: inherit; color: inherit; }
-button { cursor: pointer; transition: transform .18s var(--spring), background-color .2s, color .2s, border-color .2s; }
+button { cursor: pointer; transition: transform .18s var(--ease-out), background-color .2s, color .2s, border-color .2s; }
 button:active { transform: scale(.96); transition-duration: var(--t-press); }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 small { display: block; color: var(--muted); font-size: 13px; }
@@ -142,7 +142,8 @@ main { max-width: 1168px; margin: 0 auto; padding: 16px; }
 .wk-days::-webkit-scrollbar { display: none; }
 .wk-days.dragging { scroll-snap-type: none; cursor: grabbing; user-select: none; }
 .wk-days .wk { scroll-snap-align: start; }
-.wk-arrow { width: 30px; height: 56px; flex-shrink: 0; border: 0; background: transparent; color: var(--muted); font-size: 22px; border-radius: 10px; }
+.wk-arrow { width: 30px; height: 56px; flex-shrink: 0; border: 0; background: transparent; color: var(--muted); border-radius: 10px; display: grid; place-items: center; }
+.wk-arrow .ico { width: 20px; height: 20px; }
 .wk {
   position: relative; height: 60px; border: 1.5px solid var(--line); border-radius: 12px; background: var(--panel);
   display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0 0 5px;
@@ -423,7 +424,7 @@ ul.hist { margin: 6px 0 0; padding-left: 18px; font-size: 13.5px; color: var(--m
   max-width: 480px; margin: 0 auto; background: var(--hero); color: #fff; border-radius: 12px; padding: 11px 14px; font-size: 14px;
   box-shadow: 0 12px 28px -10px rgba(0, 0, 0, .5);
   overflow: hidden; opacity: 0; transform: translateY(14px) scale(.98); pointer-events: none;
-  transition: opacity .2s ease, transform .45s var(--spring);
+  transition: opacity .2s ease, transform .4s var(--ease-out);
 }
 .toast.show { opacity: 1; transform: none; pointer-events: auto; touch-action: pan-y; }
 .tbar { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: rgba(255, 255, 255, .45); transform-origin: left; }
@@ -626,3 +627,24 @@ ul.hist { margin: 6px 0 0; padding-left: 18px; font-size: 13.5px; color: var(--m
 @media (min-width: 640px) and (max-width: 999px) { .stiles { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 .dayright > .budget { margin-top: 22px; }
 @media (min-width: 1000px) { .dayright > .budget:first-child { margin-top: 0; } }
+
+/* ---------- drawn icons and browser surfaces ---------- */
+.ico { width: 1em; height: 1em; flex-shrink: 0; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; vertical-align: -.14em; }
+.chip .ico { margin-left: 4px; }
+.link.left .ico { margin-right: 2px; }
+.ds-chip b { display: inline-flex; align-items: center; gap: 2px; }
+.ds-chip .ico { stroke-width: 2.8; }
+.zcush .ico { width: .95em; height: .95em; stroke-width: 2.6; }
+::selection { background: color-mix(in srgb, var(--accent) 30%, transparent); color: var(--text); }
+.top ::selection { background: rgba(255, 255, 255, .35); color: #fff; }
+input, textarea, select { caret-color: var(--accent); accent-color: var(--accent); }
+html { scrollbar-color: color-mix(in srgb, var(--text) 25%, transparent) transparent; }
+@media (hover: hover) {
+  .wk:not(.sel):hover { border-color: color-mix(in srgb, var(--accent) 50%, var(--line)); }
+  .wk-arrow:hover, .chip:hover { color: var(--accent); }
+  .chip:hover { border-color: color-mix(in srgb, var(--accent) 50%, var(--line)); }
+  .quick button:hover, .btn:hover { border-color: color-mix(in srgb, var(--accent) 50%, var(--line)); }
+  .seg button:not(.on):hover { color: var(--text); }
+  .link:hover { text-decoration: underline; text-underline-offset: 3px; }
+}
+button:disabled { opacity: .45; cursor: not-allowed; transform: none; }

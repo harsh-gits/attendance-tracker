@@ -1,7 +1,7 @@
 "use strict";
 
 const KEY = "attendance.v3";
-const APP_VERSION = "1.34.0"; // semver: new feature → minor, fix → patch; keep in step with CACHE in sw.js
+const APP_VERSION = "1.34.1"; // semver: new feature → minor, fix → patch; keep in step with CACHE in sw.js
 const WD = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const MONTH_FULL = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -200,6 +200,12 @@ function overall(upto) {
 }
 
 const plural = (c, n) => (c.lab ? (n === 1 ? "lab" : "labs") : (n === 1 ? "class" : "classes"));
+// Small drawn icons, same stroke family as the nav, in place of text arrows.
+const ico = d => `<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="${d}"/></svg>`;
+const ICON = {
+  left: ico("M15 5l-7 7 7 7"), right: ico("M9 5l7 7-7 7"),
+  up: ico("M12 19V6M6 11l6-6 6 6"), down: ico("M12 5v13M6 13l6 6 6-6"),
+};
 function verdict(c, s) {
   if (s.canSkip < 0) {
     return { tone: "bad", text: `Ends below ${MIN}% (${fmt(s.finalPct)})`, sub: s.FA ? "Undo some planned absences to fix this" : "Even if you attend everything left" };
@@ -610,7 +616,7 @@ function renderDay() {
   } else {
     const next = classDayFrom(sel, 1), prev = next ? null : classDayFrom(sel, -1), to = next || prev;
     h += `<div class="empty"><p>${info && /holiday/i.test(info.type) ? "Holiday, no classes" : "No classes"}</p>${to
-      ? `<button class="chip" data-date="${to}">${next ? "Next class day" : "Last class day"}: ${nice(to)} ${next ? "›" : "‹"}</button>` : ""}</div>`;
+      ? `<button class="chip" data-date="${to}">${next ? "Next class day" : "Last class day"}: ${nice(to)} ${next ? ICON.right : ICON.left}</button>` : ""}</div>`;
   }
   if (info && info.own) h += `<div class="alert warn">You changed this day yourself (the portal had: ${esc(info.was ? info.was.type : "nothing")}). Undo it in Changes.</div>`;
   if (info && sel <= M.lastTheory) h += `<button class="link" data-act="dayEdit">Emergency change: holiday, half day, cancelled classes or extra working day…</button>`;
@@ -630,7 +636,7 @@ function daySummary(day, today) {
   const a = shown(now.exact), b = shown(o.exact), diff = Math.round((b - a) * 10) / 10;
   const tone = !ok(o.A, o.T) ? "bad" : diff < 0 ? "warn" : "good";
   const chip = future && diff !== 0
-    ? `<span class="ds-chip ${diff < 0 ? "down" : "up"}"><b>${diff < 0 ? "▼" : "▲"} <span data-roll="chip" data-v="${diff}">${Math.abs(diff).toFixed(1)}</span></b><i>vs today</i></span>` : "";
+    ? `<span class="ds-chip ${diff < 0 ? "down" : "up"}"><b>${diff < 0 ? ICON.down : ICON.up}<span data-roll="chip" data-v="${diff}">${Math.abs(diff).toFixed(1)}</span></b><i>vs today</i></span>` : "";
   return `<div class="daysum ds-${tone}">
     <svg class="ds-ring" viewBox="0 0 44 44" aria-hidden="true"><circle class="bg" cx="22" cy="22" r="18"/>
       <circle class="fg" cx="22" cy="22" r="18" pathLength="100" style="stroke-dashoffset:${(100 - o.exact).toFixed(1)}"/></svg>
@@ -666,7 +672,7 @@ function zoomScale(from, to) {
       <i class="zhere" style="left:${at(to)}%"></i>
     </div>
     <div class="zlabels"><em>${lo}%</em>
-      <span class="zcush ${cushion < 0 ? "bad" : cushion < 2 ? "warn" : ""}">${cushion === 0 ? `right at the ${MIN}% limit` : cushion > 0 ? `${minIn ? "" : "◂ "}${cushion.toFixed(1)} above the ${MIN}% limit` : `${Math.abs(cushion).toFixed(1)} below the ${MIN}% limit${minIn ? "" : " ▸"}`}</span>
+      <span class="zcush ${cushion < 0 ? "bad" : cushion < 2 ? "warn" : ""}">${cushion === 0 ? `right at the ${MIN}% limit` : cushion > 0 ? `${minIn ? "" : ICON.left}${cushion.toFixed(1)} above the ${MIN}% limit` : `${Math.abs(cushion).toFixed(1)} below the ${MIN}% limit${minIn ? "" : ICON.right}`}</span>
       <em>${hi}%</em></div>
   </div>`;
 }
@@ -684,7 +690,7 @@ function weekStrip() {
     if (st === "A") x.abs++;
     if (st === null && k.date <= today) x.unm++;
   }
-  let h = `<div class="week"><button class="wk-arrow" data-act="prevWeek" aria-label="Previous week">‹</button><div class="wk-days">`;
+  let h = `<div class="week"><button class="wk-arrow" data-act="prevWeek" aria-label="Previous week">${ICON.left}</button><div class="wk-days">`;
   for (let ds = from; ds <= to; ds = addDays(ds, 1)) {
     const x = parse(ds), info = M.cal[ds], { abs = 0, cls = 0, unm = 0 } = byDay[ds] || {};
     const kind = !info ? "off" : /holiday/i.test(info.type) ? "hol" : /CAT|FAT/i.test(info.type) ? "exam" : cls ? "class" : "off";
@@ -692,7 +698,7 @@ function weekStrip() {
     const mo = x.getDate() === 1 || ds === from ? `<em class="mo">${x.toLocaleString("en", { month: "short" })}</em>` : "";
     h += `<button class="wk ${kind}${ds === sel ? " sel" : ""}${ds === today ? " today" : ""}" data-date="${ds}">${mo}<small>${WD[x.getDay()][0]}</small><b>${x.getDate()}</b>${mark}</button>`;
   }
-  return h + `</div><button class="wk-arrow" data-act="nextWeek" aria-label="Next week">›</button></div>`;
+  return h + `</div><button class="wk-arrow" data-act="nextWeek" aria-label="Next week">${ICON.right}</button></div>`;
 }
 // Strip geometry: which dates are in view, and scrolling a date's week into view.
 let stripLeft = null;
@@ -825,7 +831,7 @@ function renderSubjects() {
   if (!c) { $("#tab-subj").innerHTML = `<div class="rowhead"><p class="note">Tap a subject to see every class and edit it.</p><button class="inline" data-act="share">Share summary</button></div>${examsHtml()}${cardsHtml()}`; return; }
   const s = stats(c), v = verdict(c, s), today = todayIso();
   let h = `
-    <button class="link left" data-act="back">‹ All subjects</button>
+    <button class="link left" data-act="back">${ICON.left}All subjects</button>
     <div class="card tone-${v.tone} static">
       <div class="row">
         <div><b>${esc(c.name)}${crown(s)}</b><small>${esc(c.code)} · ${esc(c.type || "")} · ${esc(c.slot)}</small></div>
