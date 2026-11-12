@@ -1,7 +1,7 @@
 "use strict";
 
 const KEY = "attendance.v3";
-const APP_VERSION = "1.36.0"; // semver: new feature → minor, fix → patch; keep in step with CACHE in sw.js
+const APP_VERSION = "1.36.1"; // semver: new feature → minor, fix → patch; keep in step with CACHE in sw.js
 const WD = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const MONTH_FULL = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -969,12 +969,12 @@ function renderCal() {
     grid += `<button class="day ${kind}${order}${ds === today ? " today" : ""}${ds === sel ? " sel" : ""}" data-date="${ds}" title="${esc(info ? info.type + " " + info.detail : "")}">${d}${dot}</button>`;
   }
   const facts = [`${classDays} class ${classDays === 1 ? "day" : "days"}`, missed ? `${missed} missed` : "", open ? `${open} not marked` : ""].filter(Boolean).join(", ");
-  let h = `<div class="calhead">
+  let h = `<div class="calmonth"><div class="calhead">
       <button class="wk-arrow" data-act="prevMonth" aria-label="Previous month"${calMonth <= lo ? " disabled" : ""}>${ICON.left}</button>
       <div class="caltitle"><b>${MONTH_FULL[m]} ${y}</b><small>${facts}</small></div>
       ${calMonth !== calClamp(today.slice(0, 7)) ? `<button class="chip" data-act="thisMonth">This month</button>` : ""}
       <button class="wk-arrow" data-act="nextMonth" aria-label="Next month"${calMonth >= hi ? " disabled" : ""}>${ICON.right}</button>
-    </div><div class="grid">${grid}</div>
+    </div><div class="grid">${grid}</div></div>
     <div class="legend"><span><em class="dot"></em> class day</span><span><em class="abs">✗</em> absent</span><span><em class="unm">?</em> not marked</span><span class="hol">holiday</span><span class="exm">exams</span></div>`;
   if (sel.slice(0, 7) === calMonth) {
     const info = M.cal[sel], label = !info ? "Outside the semester calendar" : [info.type, info.detail.replace(/^\(|\)$/g, "")].filter(Boolean).join(" · ");
@@ -1533,7 +1533,8 @@ document.addEventListener("click", e => {
     return;
   }
   const act = t.dataset.act;
-  if (act === "prevMonth" || act === "nextMonth" || act === "thisMonth") { shiftMonth(act === "thisMonth" ? 0 : act === "nextMonth" ? 1 : -1); return; }
+  if (act === "prevMonth" || act === "nextMonth") { slideMonth(act === "nextMonth" ? 1 : -1); return; }
+  if (act === "thisMonth") { shiftMonth(0); return; }
   if (act === "dayEdit") openDaySheet();
   if (act === "sheetClose") $("#sheet").hidden = true;
   if (act === "dayApply" && !t.disabled) applyDayChange();
@@ -1800,15 +1801,91 @@ if ("serviceWorker" in navigator && location.protocol !== "file:") {
   try { if (sessionStorage.getItem("justUpdated")) { sessionStorage.removeItem("justUpdated"); setTimeout(() => toast(`Updated ✓ (v${APP_VERSION})`), 400); } } catch (e) { /* ignore */ }
 }
 
-// Calendar: swipe sideways to change month.
+// Calendar: the month follows a finger (phone) or two fingers on a trackpad (laptop),
+// then slides to the next or previous month. Arrow keys slide it too.
+const monthStep = n => { const [y, m] = calMonth.split("-").map(Number), d = new Date(y, m - 1 + n, 1); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}`; };
+const monthOk = k => { const [lo, hi] = calRange(); return k >= lo && k <= hi; };
+let calDrag = null;
+function calDragMove(dx) {
+  const d = calDrag;
+  if (!d.el) { d.el = $(".calmonth"); if (d.el) d.el.style.transition = "none"; }
+  d.dx = dx;
+  if (!d.el || calm()) return;
+  const pull = monthOk(monthStep(dx < 0 ? 1 : -1)) ? dx : dx / 4; // rubber-band past the semester
+  d.el.style.transform = `translateX(${pull}px)`;
+  d.el.style.opacity = String(1 - Math.min(.4, Math.abs(pull) / Math.min(innerWidth, 700)));
+}
+function calDragEnd() {
+  const d = calDrag;
+  calDrag = null;
+  if (!d) return;
+  const w = Math.min(innerWidth, 700), dir = d.dx < 0 ? 1 : -1, next = monthStep(dir);
+  const fast = Math.abs(d.dx) > 40 && Math.abs(d.dx) / (Date.now() - d.t) > .35;
+  slideMonth(monthOk(next) && (Math.abs(d.dx) > w * .25 || fast) ? dir : 0, d.el);
+}
+// dir 1 = next month, -1 = previous, 0 = spring back.
+function slideMonth(dir, el = $(".calmonth")) {
+  const w = Math.min(innerWidth, 700), next = dir ? monthStep(dir) : calMonth;
+  if (!el || calm()) { if (dir) { calMonth = next; render(); } return; }
+  el.style.transition = "transform .2s var(--ease-out), opacity .2s";
+  if (!dir) { el.style.transform = ""; el.style.opacity = ""; return; }
+  buzz(8);
+  el.style.transform = `translateX(${-dir * w * .5}px)`;
+  el.style.opacity = "0";
+  setTimeout(() => {
+    calMonth = next; render();
+    const nm = $(".calmonth");
+    if (!nm) return;
+    nm.style.transition = "none";
+    nm.style.transform = `translateX(${dir * w * .3}px)`;
+    nm.style.opacity = "0";
+    nm.getBoundingClientRect();
+    nm.style.transition = "transform .34s var(--ease-out), opacity .26s";
+    nm.style.transform = ""; nm.style.opacity = "";
+  }, 170);
+}
+// Phone
 let calTouch = null;
 document.addEventListener("touchstart", e => {
-  const ok = tab === "cal" && M && e.touches.length === 1 && e.target.closest("#tab-cal") && !e.target.closest(".seg");
+  const ok = tab === "cal" && M && calMonth && e.touches.length === 1 && e.target.closest("#tab-cal") && !e.target.closest(".seg, .calday, input, select");
   calTouch = ok ? { x: e.touches[0].clientX, y: e.touches[0].clientY } : null;
 }, { passive: true });
-document.addEventListener("touchend", e => {
+document.addEventListener("touchmove", e => {
   if (!calTouch) return;
-  const p = e.changedTouches[0], dx = p.clientX - calTouch.x, dy = p.clientY - calTouch.y;
-  calTouch = null;
-  if (Math.abs(dx) > 56 && Math.abs(dx) > Math.abs(dy) * 1.6) shiftMonth(dx < 0 ? 1 : -1);
+  const dx = e.touches[0].clientX - calTouch.x, dy = e.touches[0].clientY - calTouch.y;
+  if (!calDrag) {
+    if (Math.abs(dy) > 12 && Math.abs(dy) > Math.abs(dx)) { calTouch = null; return; } // scrolling the page
+    if (Math.abs(dx) < 12) return;
+    calDrag = { t: Date.now(), dx: 0 };
+  }
+  calDragMove(dx);
 }, { passive: true });
+document.addEventListener("touchend", () => { calTouch = null; if (calDrag) calDragEnd(); }, { passive: true });
+// Laptop trackpad: horizontal two-finger swipe; it settles once the fingers stop.
+let wheelIdle = 0, wheelLock = 0;
+document.addEventListener("wheel", e => {
+  if (tab !== "cal" || !M || !calMonth || !e.target.closest("#tab-cal") || e.target.closest(".calday")) return;
+  if (Math.abs(e.deltaX) <= Math.abs(e.deltaY) && !calDrag) return; // vertical scroll stays a scroll
+  e.preventDefault(); // keep the browser's own back/forward swipe out of it
+  if (Date.now() < wheelLock) return; // the swipe's leftover momentum after a flip
+  if (!calDrag) calDrag = { t: Date.now(), dx: 0, wheel: true };
+  calDragMove(Math.max(-400, Math.min(400, calDrag.dx - e.deltaX)));
+  clearTimeout(wheelIdle);
+  wheelIdle = setTimeout(() => {
+    if (!calDrag) return;
+    const flipping = Math.abs(calDrag.dx) > Math.min(innerWidth, 700) * .15;
+    calDrag.t = Date.now() - 1e4; // trackpad: decide on distance only
+    if (flipping) calDrag.dx = Math.sign(calDrag.dx) * Math.min(innerWidth, 700); // a short flick is enough
+    calDragEnd();
+    if (flipping) wheelLock = Date.now() + 450;
+  }, 90);
+}, { passive: false });
+// Keyboard
+document.addEventListener("keydown", e => {
+  if (tab !== "cal" || !M || !calMonth || calDrag || e.altKey || e.metaKey || e.ctrlKey) return;
+  if (e.target.closest && e.target.closest("input, select, textarea, .seg")) return;
+  const dir = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
+  if (!dir || !monthOk(monthStep(dir))) return;
+  e.preventDefault();
+  slideMonth(dir);
+});

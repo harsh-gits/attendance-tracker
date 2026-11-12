@@ -693,3 +693,5 @@ button:disabled { opacity: .45; cursor: not-allowed; transform: none; }
   body:not([data-tab="day"]):not(.setup) .hero-text { display: grid; padding-bottom: 0; }
   body:not([data-tab="day"]):not(.setup) .overall { margin: 0; }
 }
+.calmonth { touch-action: pan-y; overscroll-behavior-x: contain; }
+#tab-cal.active { overscroll-behavior-x: contain; }
