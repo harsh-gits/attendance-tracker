@@ -648,3 +648,32 @@ html { scrollbar-color: color-mix(in srgb, var(--text) 25%, transparent) transpa
   .link:hover { text-decoration: underline; text-underline-offset: 3px; }
 }
 button:disabled { opacity: .45; cursor: not-allowed; transform: none; }
+
+/* ---------- Today, marking first: gauge under the classes, one-line skip rows ---------- */
+.daybody > .daysum { margin-top: 14px; }
+.hint { color: var(--muted); }
+.markall span.done { display: flex; align-items: center; gap: 6px; color: var(--good); }
+.markall span.done svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 22; animation: tick .32s var(--ease-out) both; }
+.brows { grid-template-columns: 1fr; gap: 0; }
+.brows li { grid-template-columns: minmax(0, 1fr) auto auto; gap: 0 10px; align-items: center; min-height: 38px; border-top: 1px solid var(--line); }
+.bname { grid-column: 1; grid-row: 1; }
+.punch { grid-column: 2; grid-row: 1; justify-content: flex-end; max-width: 150px; }
+.punch.long { grid-column: 1 / -1; grid-row: 2; max-width: none; justify-content: flex-start; padding-bottom: 9px; }
+.brows em { grid-column: 3; grid-row: 1; min-width: 44px; text-align: right; }
+.bgone { margin: 0; padding: 9px 0 0; border-top: 1px solid var(--line); font-size: 12.5px; color: var(--muted); }
+.bkey { margin-top: 10px; }
+
+/* Subjects: a safe subject stays in ink; only the verdict line carries colour. */
+.card.tone-good { --tone: color-mix(in srgb, var(--text) 50%, transparent); }
+.card.tone-good .pct { color: var(--text); }
+.card.tone-good .verdict { color: var(--good); }
+
+/* Laptops: the tab bar becomes a rail beside the page instead of covering it. */
+@media (min-width: 1360px) and (min-height: 700px) {
+  body { padding-bottom: 40px; }
+  .tabs { left: max(16px, calc((100vw - 1168px) / 2 - 100px)); top: 50%; bottom: auto; transform: translateY(-50%); flex-direction: column; width: 76px; }
+  .tabs button { flex: none; padding: 10px 0 8px; }
+  .tabs::before { --h: calc((100% - 18px) / 5); top: calc(5px + var(--i, 0) * (var(--h) + 2px)); bottom: auto; left: 5px; width: auto; right: 5px; height: var(--h); transition: top .4s var(--ease-glide); }
+}
+@media (prefers-reduced-motion: reduce) { .markall span.done svg { animation: none; } }
+@media (max-width: 559px) { .sess { padding-top: 12px; padding-bottom: 12px; row-gap: 8px; } }

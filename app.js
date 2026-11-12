@@ -1,7 +1,7 @@
 "use strict";
 
 const KEY = "attendance.v3";
-const APP_VERSION = "1.34.1"; // semver: new feature → minor, fix → patch; keep in step with CACHE in sw.js
+const APP_VERSION = "1.35.0"; // semver: new feature → minor, fix → patch; keep in step with CACHE in sw.js
 const WD = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const MONTH_FULL = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -279,19 +279,22 @@ function budgetHtml() {
     if (!total || total > 60) return "";
     let h = "";
     for (let i = 0; i < total; i++) h += `<i class="${i < off ? "p-off" : i < off + free ? "p-free" : r.n < 0 ? "p-must bad" : "p-must"}"></i>`;
-    return `<span class="punch" aria-hidden="true">${h}</span>`;
+    return `<span class="punch${total > 10 ? " long" : ""}" aria-hidden="true">${h}</span>`;
   };
   let big, rows = "", hours = false;
   if (each) {
     const list = M.courses.map(c => ({ c, r: beforeDate(c, cutoffFor(c, t)), u: c.perSession }))
       .sort((x, y) => x.r.n / x.u - y.r.n / y.u);
     big = list.reduce((sum, { r, u }) => sum + Math.max(0, Math.floor(r.n / u)), 0);
-    rows = `<ul class="brows">${list.map(({ c, r, u }) => {
+    // Subjects with nothing left before the date fold into one quiet line.
+    const live = list.filter(({ r, u }) => Math.round(r.F / u) > 0), gone = list.filter(x => !live.includes(x));
+    const goneLine = gone.length ? `<p class="bgone">No classes left ${t.until}: ${gone.map(x => esc(x.c.name)).join(", ")}</p>` : "";
+    rows = `<ul class="brows">${live.map(({ c, r, u }) => {
       const left = Math.round(r.F / u), free = Math.floor(r.n / u);
-      const note = !left ? "no classes left" : r.n < 0 ? `attend all, still ${fmt(r.pct)}` : `${free} of ${left - Math.round(r.FA / u)}`;
+      const note = r.n < 0 ? `attend all, still ${fmt(r.pct)}` : `${free} of ${left - Math.round(r.FA / u)}`;
       const cut = cutoffFor(c, t), till = c.lab && cut !== t.cutoff ? `<small class="btill">lab · till ${labFat() && cut === labFat().start ? "Lab FAT" : shortDate(addDays(cut, -1))}</small>` : "";
       return `<li class="${r.n < 0 ? "bad" : left && free === 0 ? "warn" : ""}"><span class="bname">${esc(c.name)}${till}</span><em data-roll="b-${esc(c.key)}" data-v="${free}">${note}</em>${punch(r, u)}</li>`;
-    }).join("")}</ul>`;
+    }).join("")}</ul>${goneLine}`;
   } else {
     let A = 0, T = 0, F = 0, FA = 0;
     for (const c of M.courses) {
@@ -585,14 +588,15 @@ function renderDay() {
   for (const c of M.courses) for (const k of c.classes) if (k.date === sel) sessions.push({ c, k });
   sessions.sort((a, b) => a.k.time.localeCompare(b.k.time));
 
-  const wide = matchMedia("(min-width: 1000px)").matches;
-  let h = `<div class="dayleft">` + alertsHtml() + (wide ? "" : budgetHtml()) + weekStrip() + `<div class="daybody">
+  // Marking comes first; the gauge sits under the classes so it answers each mark.
+  let h = `<div class="dayleft">` + alertsHtml() + weekStrip() + `<div class="daybody">
     <div class="daynav">
       <div class="date"><b>${sel === today ? "Today · " : ""}${nice(sel)}</b><small>${esc(label)}</small></div>
       ${sel !== today ? `<button class="chip" data-act="today">Today</button>` : ""}
-    </div>` + daySummary(sel, today);
+    </div>`;
 
   if (sessions.length) {
+    const done = sessions.every(({ c, k }) => statusOf(c, k));
     h += `<div class="sessions">`;
     for (const { c, k } of sessions) {
       const st = statusOf(c, k);
@@ -612,16 +616,17 @@ function renderDay() {
           ${statusButtons(c, k)}
         </div>`;
     }
-    h += `<div class="markall"><span>Mark all</span><button data-all="P">Present</button><button data-all="A">Absent</button><button data-all="">Clear mine</button></div></div>`;
+    h += `<div class="markall"><span${done ? ` class="done"` : ""}>${done ? `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>All marked` : "Mark all"}</span><button data-all="P">Present</button><button data-all="A">Absent</button><button data-all="">Clear mine</button></div></div>`;
   } else {
     const next = classDayFrom(sel, 1), prev = next ? null : classDayFrom(sel, -1), to = next || prev;
     h += `<div class="empty"><p>${info && /holiday/i.test(info.type) ? "Holiday, no classes" : "No classes"}</p>${to
       ? `<button class="chip" data-date="${to}">${next ? "Next class day" : "Last class day"}: ${nice(to)} ${next ? ICON.right : ICON.left}</button>` : ""}</div>`;
   }
+  h += daySummary(sel, today);
   if (info && info.own) h += `<div class="alert warn">You changed this day yourself (the portal had: ${esc(info.was ? info.was.type : "nothing")}). Undo it in Changes.</div>`;
   if (info && sel <= M.lastTheory) h += `<button class="link" data-act="dayEdit">Emergency change: holiday, half day, cancelled classes or extra working day…</button>`;
 
-  h += `</div>${installHtml()}</div><div class="dayright">${wide ? budgetHtml() : ""}<h2>Subjects</h2>${subjRowsHtml()}</div>`;
+  h += `</div>${installHtml()}</div><div class="dayright">${budgetHtml()}<h2>Subjects</h2>${subjRowsHtml()}</div>`;
   morph($("#tab-day"), h);
   placeStrip();
   flashIds = [];
