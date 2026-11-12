@@ -1,7 +1,7 @@
 "use strict";
 
 const KEY = "attendance.v3";
-const APP_VERSION = "1.36.1"; // semver: new feature → minor, fix → patch; keep in step with CACHE in sw.js
+const APP_VERSION = "1.36.2"; // semver: new feature → minor, fix → patch; keep in step with CACHE in sw.js
 const WD = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const MONTH_FULL = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -590,12 +590,12 @@ function renderDay() {
   for (const c of M.courses) for (const k of c.classes) if (k.date === sel) sessions.push({ c, k });
   sessions.sort((a, b) => a.k.time.localeCompare(b.k.time));
 
-  // Marking comes first; the gauge sits under the classes so it answers each mark.
+  // Attendance up to the day, then its classes; the skip budget waits below.
   let h = `<div class="dayleft">` + alertsHtml() + weekStrip() + `<div class="daybody">
     <div class="daynav">
       <div class="date"><b>${sel === today ? "Today · " : ""}${nice(sel)}</b><small>${esc(label)}</small></div>
       ${sel !== today ? `<button class="chip" data-act="today">Today</button>` : ""}
-    </div>`;
+    </div>` + daySummary(sel, today);
 
   if (sessions.length) {
     const done = sessions.every(({ c, k }) => statusOf(c, k));
@@ -624,7 +624,6 @@ function renderDay() {
     h += `<div class="empty"><p>${info && /holiday/i.test(info.type) ? "Holiday, no classes" : "No classes"}</p>${to
       ? `<button class="chip" data-date="${to}">${next ? "Next class day" : "Last class day"}: ${nice(to)} ${next ? ICON.right : ICON.left}</button>` : ""}</div>`;
   }
-  h += daySummary(sel, today);
   if (info && info.own) h += `<div class="alert warn">You changed this day yourself (the portal had: ${esc(info.was ? info.was.type : "nothing")}). Undo it in Changes.</div>`;
   if (info && sel <= M.lastTheory) h += `<button class="link" data-act="dayEdit">Emergency change: holiday, half day, cancelled classes or extra working day…</button>`;
 

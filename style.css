@@ -650,7 +650,6 @@ html { scrollbar-color: color-mix(in srgb, var(--text) 25%, transparent) transpa
 button:disabled { opacity: .45; cursor: not-allowed; transform: none; }
 
 /* ---------- Today, marking first: gauge under the classes, one-line skip rows ---------- */
-.daybody > .daysum { margin-top: 14px; }
 .hint { color: var(--muted); }
 .markall span.done { display: flex; align-items: center; gap: 6px; color: var(--good); }
 .markall span.done svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 22; animation: tick .32s var(--ease-out) both; }
@@ -695,3 +694,17 @@ button:disabled { opacity: .45; cursor: not-allowed; transform: none; }
 }
 .calmonth { touch-action: pan-y; overscroll-behavior-x: contain; }
 #tab-cal.active { overscroll-behavior-x: contain; }
+
+/* ---------- Phones: a shorter header and a tighter gauge keep the classes in reach ---------- */
+@media (max-width: 559px) {
+  .top { padding-top: calc(12px + env(safe-area-inset-top)); }
+  body[data-tab="day"] .overall { font-size: 46px; }
+  .sky { --plot: 88px; margin-top: 22px; }
+  main { padding-top: 12px; }
+  .attn { margin-bottom: 10px; }
+  .attn-row { padding-top: 8px; padding-bottom: 8px; }
+  .daysum { padding: 10px 14px 12px; margin-bottom: 12px; }
+  .ds-mid b { font-size: 40px; }
+  .zscale { margin-top: 10px; }
+  .seg button { min-height: 42px; }
+}
