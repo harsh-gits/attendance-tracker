@@ -1,7 +1,7 @@
 "use strict";
 
 const KEY = "attendance.v3";
-const APP_VERSION = "1.35.0"; // semver: new feature → minor, fix → patch; keep in step with CACHE in sw.js
+const APP_VERSION = "1.36.0"; // semver: new feature → minor, fix → patch; keep in step with CACHE in sw.js
 const WD = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const MONTH_FULL = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -70,6 +70,7 @@ let state = load();
 let M = null;          // everything derived from the imported data
 let sel = todayIso();
 let tab = "day";
+let calMonth = null; // "YYYY-MM" on show in the Calendar tab; follows the selected day when the tab opens
 let openCourse = null; // course shown in the Subjects tab
 let flashIds = [];
 
@@ -488,6 +489,7 @@ function render() {
   if (setup) { $("#tab-day").innerHTML = importHtml(true); return; }
   if (tab === "day") renderDay();
   if (tab === "subj") renderSubjects();
+  if (tab !== "cal") calMonth = null;
   if (tab === "cal") renderCal();
   if (tab === "log") renderLog();
   if (tab === "set") renderSettings();
@@ -933,40 +935,61 @@ function renderLog() {
   $("#tab-log").innerHTML = h;
 }
 
+const calRange = () => [M.dates[0].slice(0, 7), M.dates[M.dates.length - 1].slice(0, 7)];
+const calClamp = k => { const [lo, hi] = calRange(); return k < lo ? lo : k > hi ? hi : k; };
+function shiftMonth(n) {
+  const [y, m] = calMonth.split("-").map(Number), d = new Date(y, m - 1 + n, 1);
+  const k = calClamp(n ? `${d.getFullYear()}-${pad(d.getMonth() + 1)}` : todayIso().slice(0, 7));
+  if (k === calMonth) return;
+  const dir = k > calMonth ? "next" : "prev";
+  go(() => { calMonth = k; render(); }, dir);
+}
+// One month at a time; the chosen day's classes sit under the grid and can be marked there.
 function renderCal() {
-  const today = todayIso();
-  const first = parse(M.dates[0]), last = parse(M.dates[M.dates.length - 1]);
-  let h = `<p class="note">Tap a day to see or mark its classes.</p>`;
-  const months = [];
-  for (let y = first.getFullYear(), m = first.getMonth(); y < last.getFullYear() || (y === last.getFullYear() && m <= last.getMonth()); m === 11 ? (y++, m = 0) : m++) months.push([y, m]);
-  // This month first, then the months ahead, then earlier months (newest first).
-  const now = today.slice(0, 7), key = ([y, m]) => `${y}-${pad(m + 1)}`;
-  const ordered = [...months.filter(x => key(x) >= now), ...months.filter(x => key(x) < now).reverse()];
-  if (!ordered.length || key(ordered[0]) !== now) ordered.sort((a, b) => key(b).localeCompare(key(a)));
-  let shownEarlier = false;
-  for (const [y, m] of ordered) {
-    if (!shownEarlier && key([y, m]) < now && ordered.some(x => key(x) >= now)) { h += `<div class="divider">Earlier months</div>`; shownEarlier = true; }
-    h += `<h2>${MONTH_FULL[m]} ${y}</h2><div class="grid">` + WD.map(w => `<div class="wd">${w[0]}</div>`).join("");
-    const firstDay = new Date(y, m, 1).getDay(), days = new Date(y, m + 1, 0).getDate();
-    for (let i = 0; i < firstDay; i++) h += `<div></div>`;
-    for (let d = 1; d <= days; d++) {
-      const ds = `${y}-${pad(m + 1)}-${pad(d)}`, info = M.cal[ds];
-      const kind = !info ? "off" : M.isClassDay(ds) ? "class" : /holiday/i.test(info.type) ? "holiday" : /CAT|FAT|exam/i.test(info.type) ? "exam" : "off";
-      let abs = 0, unmarked = 0;
-      for (const c of M.courses) for (const k of c.classes) {
-        if (k.date !== ds) continue;
-        const st = statusOf(c, k);
-        if (st === "A") abs++;
-        if (st === null && ds <= today) unmarked++;
-      }
-      const dot = abs ? `<em class="abs">${abs}✗</em>` : unmarked ? `<em class="unm">?</em>` : kind === "class" ? `<em class="dot"></em>` : "";
-      const order = M.isClassDay(ds) && M.orderOf(ds) !== WD[parse(ds).getDay()] ? " order" : "";
-      h += `<button class="day ${kind}${order}${ds === today ? " today" : ""}${ds === sel ? " sel" : ""}" data-date="${ds}" title="${esc(info ? info.type + " " + info.detail : "")}">${d}${dot}</button>`;
+  const today = todayIso(), [lo, hi] = calRange();
+  if (!calMonth) calMonth = calClamp(sel.slice(0, 7));
+  const [y, mm] = calMonth.split("-").map(Number), m = mm - 1;
+  let grid = WD.map(w => `<div class="wd">${w[0]}</div>`).join(""), classDays = 0, missed = 0, open = 0;
+  const firstDay = new Date(y, m, 1).getDay(), days = new Date(y, m + 1, 0).getDate();
+  for (let i = 0; i < firstDay; i++) grid += `<div></div>`;
+  for (let d = 1; d <= days; d++) {
+    const ds = `${calMonth}-${pad(d)}`, info = M.cal[ds];
+    const kind = !info ? "off" : M.isClassDay(ds) ? "class" : /holiday/i.test(info.type) ? "holiday" : /CAT|FAT|exam/i.test(info.type) ? "exam" : "off";
+    let abs = 0, unmarked = 0;
+    for (const c of M.courses) for (const k of c.classes) {
+      if (k.date !== ds) continue;
+      const st = statusOf(c, k);
+      if (st === "A") abs++;
+      if (st === null && ds <= today) unmarked++;
     }
-    h += `</div>`;
+    if (kind === "class") classDays++;
+    missed += abs; open += unmarked;
+    const dot = abs ? `<em class="abs">${abs}✗</em>` : unmarked ? `<em class="unm">?</em>` : kind === "class" ? `<em class="dot"></em>` : "";
+    const order = M.isClassDay(ds) && M.orderOf(ds) !== WD[parse(ds).getDay()] ? " order" : "";
+    grid += `<button class="day ${kind}${order}${ds === today ? " today" : ""}${ds === sel ? " sel" : ""}" data-date="${ds}" title="${esc(info ? info.type + " " + info.detail : "")}">${d}${dot}</button>`;
   }
-  h += `<div class="legend"><span><em class="dot"></em> class day</span><span><em class="abs">✗</em> absent</span><span><em class="unm">?</em> not marked</span><span class="hol">holiday</span><span class="exm">exams</span></div>`;
-  $("#tab-cal").innerHTML = h;
+  const facts = [`${classDays} class ${classDays === 1 ? "day" : "days"}`, missed ? `${missed} missed` : "", open ? `${open} not marked` : ""].filter(Boolean).join(", ");
+  let h = `<div class="calhead">
+      <button class="wk-arrow" data-act="prevMonth" aria-label="Previous month"${calMonth <= lo ? " disabled" : ""}>${ICON.left}</button>
+      <div class="caltitle"><b>${MONTH_FULL[m]} ${y}</b><small>${facts}</small></div>
+      ${calMonth !== calClamp(today.slice(0, 7)) ? `<button class="chip" data-act="thisMonth">This month</button>` : ""}
+      <button class="wk-arrow" data-act="nextMonth" aria-label="Next month"${calMonth >= hi ? " disabled" : ""}>${ICON.right}</button>
+    </div><div class="grid">${grid}</div>
+    <div class="legend"><span><em class="dot"></em> class day</span><span><em class="abs">✗</em> absent</span><span><em class="unm">?</em> not marked</span><span class="hol">holiday</span><span class="exm">exams</span></div>`;
+  if (sel.slice(0, 7) === calMonth) {
+    const info = M.cal[sel], label = !info ? "Outside the semester calendar" : [info.type, info.detail.replace(/^\(|\)$/g, "")].filter(Boolean).join(" · ");
+    const sessions = [];
+    for (const c of M.courses) for (const k of c.classes) if (k.date === sel) sessions.push({ c, k });
+    sessions.sort((p, q) => p.k.time.localeCompare(q.k.time));
+    h += `<div class="calday"><div class="daynav"><div class="date"><b>${sel === today ? "Today · " : ""}${nice(sel)}</b><small>${esc(label)}</small></div>
+      <button class="chip" data-date="${sel}">Open day ${ICON.right}</button></div>`
+      + (sessions.length ? `<div class="sessions">${sessions.map(({ c, k }) => `
+        <div class="sess st-${statusOf(c, k) || "none"}"><time class="stime">${k.time || ""}</time>
+          <div class="sinfo"><b>${esc(c.name)}</b><small>${k.units > 1 ? `${k.units} slots · ` : ""}${esc(k.slot)} ${sourceTag(c, k)}</small></div>
+          ${statusButtons(c, k)}</div>`).join("")}</div>`
+        : `<p class="note">${info && /holiday/i.test(info.type) ? "Holiday, no classes." : "No classes on this day."}</p>`) + `</div>`;
+  } else h += `<p class="note calday">Tap a day to see and mark its classes.</p>`;
+  morph($("#tab-cal"), h);
 }
 
 function renderSettings() {
@@ -1504,11 +1527,13 @@ document.addEventListener("click", e => {
   }
   if (t.dataset.date) {
     const d = t.dataset.date;
+    if (tab === "cal" && t.closest(".grid") && d !== sel) { sel = d; render(); return; }
     if (t.closest(".week") && tab === "day") { moveTo(d); return; }
     go(() => { sel = d; tab = "day"; render(); window.scrollTo(0, 0); }, d > sel ? "next" : d < sel ? "prev" : "fade");
     return;
   }
   const act = t.dataset.act;
+  if (act === "prevMonth" || act === "nextMonth" || act === "thisMonth") { shiftMonth(act === "thisMonth" ? 0 : act === "nextMonth" ? 1 : -1); return; }
   if (act === "dayEdit") openDaySheet();
   if (act === "sheetClose") $("#sheet").hidden = true;
   if (act === "dayApply" && !t.disabled) applyDayChange();
@@ -1774,3 +1799,16 @@ if ("serviceWorker" in navigator && location.protocol !== "file:") {
   }).catch(() => {});
   try { if (sessionStorage.getItem("justUpdated")) { sessionStorage.removeItem("justUpdated"); setTimeout(() => toast(`Updated ✓ (v${APP_VERSION})`), 400); } } catch (e) { /* ignore */ }
 }
+
+// Calendar: swipe sideways to change month.
+let calTouch = null;
+document.addEventListener("touchstart", e => {
+  const ok = tab === "cal" && M && e.touches.length === 1 && e.target.closest("#tab-cal") && !e.target.closest(".seg");
+  calTouch = ok ? { x: e.touches[0].clientX, y: e.touches[0].clientY } : null;
+}, { passive: true });
+document.addEventListener("touchend", e => {
+  if (!calTouch) return;
+  const p = e.changedTouches[0], dx = p.clientX - calTouch.x, dy = p.clientY - calTouch.y;
+  calTouch = null;
+  if (Math.abs(dx) > 56 && Math.abs(dx) > Math.abs(dy) * 1.6) shiftMonth(dx < 0 ? 1 : -1);
+}, { passive: true });

@@ -677,3 +677,19 @@ button:disabled { opacity: .45; cursor: not-allowed; transform: none; }
 }
 @media (prefers-reduced-motion: reduce) { .markall span.done svg { animation: none; } }
 @media (max-width: 559px) { .sess { padding-top: 12px; padding-bottom: 12px; row-gap: 8px; } }
+
+/* ---------- Calendar: one month at a time, the chosen day's classes underneath ---------- */
+.calhead { display: flex; align-items: center; gap: 8px; margin: 4px 0 12px; }
+.caltitle { flex: 1; min-width: 0; }
+.caltitle b { display: block; font: 650 21px/1.2 var(--display); }
+.caltitle small { font-size: 13px; color: var(--muted); }
+.wk-arrow:disabled { opacity: .28; cursor: default; }
+.calday { margin-top: 20px; }
+.calday .daynav { margin-bottom: 10px; }
+@media (min-width: 560px) { #tab-cal .day { aspect-ratio: 1.4; } }
+/* The slim header stays one row on wide screens too. */
+@media (min-width: 720px) {
+  body:not([data-tab="day"]):not(.setup) .hero { display: block; }
+  body:not([data-tab="day"]):not(.setup) .hero-text { display: grid; padding-bottom: 0; }
+  body:not([data-tab="day"]):not(.setup) .overall { margin: 0; }
+}
